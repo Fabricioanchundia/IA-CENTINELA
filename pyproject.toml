@@ -13,12 +13,16 @@ centinela = "centinela.cli:main"
 
 [dependency-groups]
 dev = [
+    "httpx2>=0.1",
     "mypy>=1.18",
     "pre-commit>=4.3",
     "pytest>=8.4",
     "pytest-cov>=7.0",
     "ruff>=0.14",
 ]
+
+[tool.uv.workspace]
+members = ["apps/shop"]
 
 [build-system]
 requires = ["hatchling"]
@@ -30,21 +34,21 @@ packages = ["src/centinela"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "tests", "apps/shop/src", "apps/shop/tests"]
 
 [tool.ruff.lint]
 # E/F/W: errors, I: imports, B: bugbear, UP: modern syntax, S: bandit (security), N: naming
 select = ["E", "F", "W", "I", "B", "UP", "S", "N"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101"]  # assert is fine in tests
+"**/tests/**" = ["S101"]  # assert is fine in tests
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = "src"
-packages = ["centinela"]
+mypy_path = ["src", "apps/shop/src"]
+packages = ["centinela", "shop"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-q --cov=centinela --cov-report=term-missing"
+testpaths = ["tests", "apps/shop/tests"]
+addopts = "-q --import-mode=importlib --cov=centinela --cov=shop --cov-report=term-missing"

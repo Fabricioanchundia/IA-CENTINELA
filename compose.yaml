@@ -1,0 +1,95 @@
+# Demo shop for Centinela: 3 services + PostgreSQL + Redis.
+# Total memory cap ~700 MB (see docs/adr/0002 and 0003).
+#
+#   cp .env.example .env        # first time only
+#   docker compose up -d --build
+#   ./scripts/smoke.sh
+#   docker compose down         # stop and free memory (data is kept in the volume)
+
+name: centinela
+
+x-shop-service: &shop-service
+  build:
+    context: .
+    dockerfile: apps/shop/Dockerfile
+  image: centinela-shop:dev
+  restart: unless-stopped
+  environment:
+    # Standard libpq variables: the password stays a separate secret, never inside a URL
+    PGHOST: postgres
+    PGPORT: "5432"
+    PGUSER: ${POSTGRES_USER:-shop}
+    PGPASSWORD: ${POSTGRES_PASSWORD}
+    PGDATABASE: ${POSTGRES_DB:-shop}
+    REDIS_URL: redis://redis:6379/0
+    CATALOG_URL: http://catalog:8000
+    PAYMENTS_URL: http://payments:8000
+  mem_limit: 128m
+  cpus: 0.5
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:8000/healthz', timeout=2)"]
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    start_period: 15s
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-shop}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-shop}
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    mem_limit: 256m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "48mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    mem_limit: 64m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  catalog:
+    <<: *shop-service
+    command: ["uvicorn", "shop.catalog:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "127.0.0.1:8001:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  payments:
+    <<: *shop-service
+    command: ["uvicorn", "shop.payments:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "127.0.0.1:8003:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  orders:
+    <<: *shop-service
+    command: ["uvicorn", "shop.orders:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]
+    ports:
+      - "127.0.0.1:8002:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+      catalog: { condition: service_healthy }
+      payments: { condition: service_healthy }
+
+volumes:
+  pgdata:
