@@ -1,7 +1,7 @@
 # One small image for the three shop services (catalog, orders, payments).
 # Build from the repository root:  docker build -f apps/shop/Dockerfile -t centinela-shop:dev .
 
-FROM ghcr.io/astral-sh/uv:0.11 AS uv
+FROM ghcr.io/astral-sh/uv:0.13 AS uv
 
 # ---- build stage: resolve dependencies with uv -----------------------------------------
 FROM python:3.12-slim AS build
