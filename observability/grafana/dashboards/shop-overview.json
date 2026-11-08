@@ -10,7 +10,7 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "time": {
     "from": "now-30m",
@@ -464,8 +464,10 @@
           "unit": "percentunit",
           "custom": {
             "lineWidth": 2,
-            "fillOpacity": 10
-          }
+            "fillOpacity": 10,
+            "axisSoftMax": 0.1
+          },
+          "min": 0
         },
         "overrides": []
       },
@@ -513,7 +515,8 @@
           "custom": {
             "lineWidth": 2,
             "fillOpacity": 10
-          }
+          },
+          "min": 0
         },
         "overrides": []
       },

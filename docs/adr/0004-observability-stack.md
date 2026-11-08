@@ -22,6 +22,7 @@ Centinela can only diagnose what it can see. It needs metrics (is something wron
 
 ## Consequences
 
-- Memory caps: Prometheus 256 MB, Loki 256 MB, Grafana 384 MB, Alloy 192 MB, loadgen 96 MB → ~1.2 GB. Grafana started at 256 MB but hit 255/256 MiB on first boot (saturation), so it was raised, plus ~0.7 GB for the shop.
+- Memory caps: Prometheus 256 MB, Loki 256 MB, Grafana 384 MB, Alloy 192 MB, loadgen 96 MB → ~1.2 GB. Plus ~0.7 GB for the shop.
+- **Lesson about `docker stats`:** on first boot Grafana showed 255/256 MiB and looked saturated. Reading the container cgroup (`memory.stat`) showed only **84 MiB of real memory (anon)** and **280 MiB of page cache (file)**, which the kernel reclaims under pressure; no OOM kill, no restarts. The limit was raised to 384 MB for headroom and `GOMEMLIMIT=300MiB` was set (the Go runtime does not read the container limit). The `HighMemoryUsage` alert uses `process_resident_memory_bytes` (RSS), which excludes page cache, so it does not fall into the same trap.
 - Validated end to end before merging: killing `payments` fires `ServiceDown` (root cause) together with `HighErrorRate` on orders and `UpstreamErrors` (symptoms); stopping Redis fires `CacheDegraded`. Telling the root cause apart from its symptoms is exactly the agent's job.
 - Mounting the Docker socket gives Alloy read access to container metadata. It is read-only and bound to localhost; in Kubernetes (Phase 4) Alloy will read pod logs instead.
