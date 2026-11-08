@@ -42,7 +42,7 @@ flowchart LR
 | 0 | Repo, security settings, CI, project skeleton | ✅ |
 | 1 | Fundamentals refresh (folded into later phases) | ⏭️ |
 | 2 | Demo microservices app (3 services + PostgreSQL + Redis) in Docker | ✅ |
-| 3 | Observability: Prometheus, Grafana, Loki, OpenTelemetry → **v0.1** | ⏳ |
+| 3 | Observability: Prometheus, Grafana, Loki, Alloy → **v0.1** | ✅ |
 | 4 | Local Kubernetes (k3d) + Terraform | ⏳ |
 | 5 | Incident data pipeline + history | ⏳ |
 | 6 | Agent v1: diagnose only (read-only) → **v0.5** | ⏳ |
@@ -60,6 +60,8 @@ The whole stack is built to run on a laptop with **16 GB RAM** and an **8 GB GPU
 |---|---|
 | Windows + editor + browser | ~6 GB |
 | WSL2 (Docker, k3d, observability, agent) | capped at 6–8 GB |
+| Demo shop (5 containers) | ~220 MB measured, 700 MB cap |
+| Observability (5 containers) | ~350 MB measured, 1.2 GB cap |
 | LLM (Ollama, `qwen2.5:7b`) | runs in **GPU VRAM**, not system RAM |
 
 ## Run the demo shop
@@ -78,6 +80,26 @@ docker compose down             # stop everything and free memory
 | `payments` | 8003 | Fake payment gateway | PostgreSQL |
 
 Every service exposes `/healthz`, `/readyz` and interactive API docs at `/docs`. Logs are JSON lines with a shared `request_id`. Design notes: [ADR-0003](docs/adr/0003-demo-shop-design.md).
+
+## Observability
+
+```bash
+docker compose --profile obs up -d --build   # shop + Prometheus, Loki, Alloy, Grafana, load generator
+./scripts/smoke-obs.sh                       # checks scraping, logs, dashboard and lists firing alerts
+docker compose --profile obs down            # stop everything
+```
+
+| Tool | URL | Used for |
+|---|---|---|
+| Grafana | http://localhost:3000 | Dashboard *Centinela · Shop overview* (read-only without login) |
+| Prometheus | http://localhost:9090 | Metrics, alert rules, firing alerts |
+| Loki | http://localhost:3100 | Logs (query them from Grafana → Explore) |
+
+**Alerts** (unit-tested with `promtool`): `ServiceDown`, `HighErrorRate`, `HighLatencyP95`, `UpstreamErrors`, `CacheDegraded`, `HighMemoryUsage`.
+
+Try an incident: `docker compose stop payments`, wait ~2 minutes and look at the dashboard. `ServiceDown` (root cause) fires together with `HighErrorRate` on orders and `UpstreamErrors` (symptoms). Separating cause from symptoms is what the agent will do. Bring it back with `docker compose start payments`.
+
+Design notes: [ADR-0004](docs/adr/0004-observability-stack.md).
 
 ## Quick start (development)
 

@@ -1,0 +1,65 @@
+// Grafana Alloy: collects the logs of every container of the "centinela" Compose project
+// and ships them to Loki. Shop logs are JSON, so `level` becomes a label and
+// `request_id` structured metadata (searchable, without exploding label cardinality).
+
+discovery.docker "containers" {
+	host = "unix:///var/run/docker.sock"
+
+	filter {
+		name   = "label"
+		values = ["com.docker.compose.project=centinela"]
+	}
+}
+
+discovery.relabel "containers" {
+	targets = []
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_name"]
+		regex         = "/(.*)"
+		target_label  = "container"
+	}
+}
+
+loki.source.docker "containers" {
+	host             = "unix:///var/run/docker.sock"
+	targets          = discovery.docker.containers.targets
+	relabel_rules    = discovery.relabel.containers.rules
+	labels           = {"project" = "centinela"}
+	refresh_interval = "10s"
+	forward_to       = [loki.process.json.receiver]
+}
+
+loki.process "json" {
+	stage.json {
+		expressions = {
+			level      = "level",
+			request_id = "request_id",
+		}
+	}
+
+	stage.labels {
+		values = {
+			level = "",
+		}
+	}
+
+	stage.structured_metadata {
+		values = {
+			request_id = "",
+		}
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

@@ -1,10 +1,11 @@
-# Demo shop for Centinela: 3 services + PostgreSQL + Redis.
-# Total memory cap ~700 MB (see docs/adr/0002 and 0003).
+# Centinela local stack.
 #
-#   cp .env.example .env        # first time only
-#   docker compose up -d --build
-#   ./scripts/smoke.sh
-#   docker compose down         # stop and free memory (data is kept in the volume)
+#   Shop only (~700 MB cap):          docker compose up -d --build
+#   Shop + observability (~1.9 GB):   docker compose --profile obs up -d --build
+#   Checks:                           ./scripts/smoke.sh && ./scripts/smoke-obs.sh
+#   Stop everything, free memory:     docker compose --profile obs down
+#
+# First time only: cp .env.example .env   (see docs/adr/0002, 0003 and 0004)
 
 name: centinela
 
@@ -91,5 +92,104 @@ services:
       catalog: { condition: service_healthy }
       payments: { condition: service_healthy }
 
+  # ---------------------------------------------------------------------------------------
+  # Observability (profile "obs"): metrics, logs, dashboards and steady background traffic
+  # ---------------------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    profiles: ["obs"]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=24h
+      - --storage.tsdb.retention.size=512MB
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    mem_limit: 256m
+    cpus: 0.5
+
+  loki:
+    image: grafana/loki:3.7.9
+    profiles: ["obs"]
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./observability/loki:/etc/loki:ro
+      - lokidata:/loki
+    ports:
+      - "127.0.0.1:3100:3100"
+    mem_limit: 256m
+    cpus: 0.5
+
+  alloy:
+    image: grafana/alloy:v1.21.3
+    profiles: ["obs"]
+    restart: unless-stopped
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./observability/alloy:/etc/alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "127.0.0.1:12345:12345"
+    mem_limit: 192m
+    cpus: 0.25
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:13.3.0
+    profiles: ["obs"]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/shop-overview.json
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    mem_limit: 384m
+    cpus: 0.5
+    depends_on:
+      - prometheus
+      - loki
+
+  loadgen:
+    build:
+      context: .
+      dockerfile: apps/shop/Dockerfile
+    image: centinela-shop:dev
+    profiles: ["obs"]
+    restart: unless-stopped
+    command: ["python", "-m", "shop.loadgen"]
+    environment:
+      ORDERS_URL: http://orders:8000
+      CATALOG_URL: http://catalog:8000
+      LOADGEN_RPS: ${LOADGEN_RPS:-2}
+    mem_limit: 96m
+    cpus: 0.25
+    depends_on:
+      orders: { condition: service_healthy }
+
 volumes:
   pgdata:
+  promdata:
+  lokidata:
+  grafanadata:

@@ -62,3 +62,30 @@ jobs:
         run: docker image ls centinela-shop:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
       - name: Validate compose file
         run: cp .env.example .env && docker compose config -q
+
+  observability:
+    name: observability config
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Prometheus config and alert rules
+        run: |
+          docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool prom/prometheus:v3.16.0 check config /etc/prometheus/prometheus.yml
+      - name: Alert rule unit tests
+        run: |
+          docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" -w /etc/prometheus \
+            --entrypoint promtool prom/prometheus:v3.16.0 test rules tests/alerts_test.yml
+      - name: Loki config
+        run: |
+          docker run --rm -v "$PWD/observability/loki:/etc/loki:ro" \
+            grafana/loki:3.7.9 -config.file=/etc/loki/loki.yaml -verify-config
+      - name: Alloy config
+        run: |
+          docker run --rm -v "$PWD/observability/alloy:/etc/alloy:ro" \
+            grafana/alloy:v1.21.3 fmt /etc/alloy/config.alloy
+      - name: Grafana dashboard is valid JSON
+        run: python3 -m json.tool observability/grafana/dashboards/shop-overview.json > /dev/null
+      - name: Compose file with all profiles
+        run: cp .env.example .env && docker compose --profile obs config -q

@@ -1,12 +1,13 @@
 [project]
 name = "shop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Demo online shop (catalog, orders, payments) that Centinela watches and repairs."
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.120",
     "httpx>=0.28",
+    "prometheus-client>=0.26",
     "psycopg[binary,pool]>=3.3.8",
     "redis>=6.4",
     "uvicorn>=0.38",
