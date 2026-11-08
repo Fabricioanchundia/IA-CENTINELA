@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from fastapi.testclient import TestClient
+from prometheus_client import REGISTRY
 
 from shop.orders import InMemoryOrderRepo, OrdersDeps, UpstreamError, create_app
 
@@ -75,3 +76,19 @@ def test_payments_down_marks_order_failed() -> None:
 def test_quantity_validation() -> None:
     client, _ = make()
     assert client.post("/orders", json={"product_id": 1, "quantity": 11}).status_code == 422
+
+
+def test_order_metrics() -> None:
+    def value(name: str, labels: dict[str, str]) -> float:
+        return REGISTRY.get_sample_value(name, labels) or 0.0
+
+    paid = value("shop_orders_total", {"status": "paid"})
+    failed = value("shop_orders_total", {"status": "failed"})
+    upstream = value("shop_upstream_errors_total", {"upstream": "payments"})
+
+    make()[0].post("/orders", json={"product_id": 1, "quantity": 1})
+    make(payments_down=True)[0].post("/orders", json={"product_id": 1, "quantity": 1})
+
+    assert value("shop_orders_total", {"status": "paid"}) == paid + 1
+    assert value("shop_orders_total", {"status": "failed"}) == failed + 1
+    assert value("shop_upstream_errors_total", {"upstream": "payments"}) == upstream + 1

@@ -1,6 +1,6 @@
 [project]
 name = "centinela"
-version = "0.0.1"
+version = "0.1.0"
 description = "AI SRE agent that detects, diagnoses and safely fixes incidents in a microservices app."
 readme = "README.md"
 license = "MIT"
@@ -41,7 +41,7 @@ src = ["src", "tests", "apps/shop/src", "apps/shop/tests"]
 select = ["E", "F", "W", "I", "B", "UP", "S", "N"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/tests/**" = ["S101"]  # assert is fine in tests
+"**/tests/**" = ["S101", "S311"]  # assert and seeded random are fine in tests
 
 [tool.mypy]
 python_version = "3.12"

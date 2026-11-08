@@ -19,6 +19,7 @@ from shop import __version__
 from shop.config import Settings
 from shop.db import Pool, make_pool, ping
 from shop.logs import configure_logging, request_id_var
+from shop.metrics import ORDERS, UPSTREAM_ERRORS
 from shop.web import REQUEST_ID_HEADER, install_common
 
 SERVICE = "orders"
@@ -194,6 +195,7 @@ def place_order(deps: OrdersDeps, req: OrderRequest) -> Order:
     try:
         price = deps.catalog.price_cents(req.product_id)
     except UpstreamError as exc:
+        UPSTREAM_ERRORS.labels(exc.service).inc()
         log.error("catalog unavailable", extra={"fields": {"upstream": exc.service}})
         raise HTTPException(status_code=503, detail="catalog unavailable") from exc
     if price is None:
@@ -203,6 +205,8 @@ def place_order(deps: OrdersDeps, req: OrderRequest) -> Order:
     try:
         payment_id, pay_status = deps.payments.charge(f"order-{order.id}", order.total_cents)
     except UpstreamError as exc:
+        UPSTREAM_ERRORS.labels(exc.service).inc()
+        ORDERS.labels("failed").inc()
         deps.repo.update(order.id, "failed", None)
         log.error(
             "payments unavailable",
@@ -212,6 +216,7 @@ def place_order(deps: OrdersDeps, req: OrderRequest) -> Order:
 
     status: OrderStatus = "paid" if pay_status == "approved" else "declined"
     order = deps.repo.update(order.id, status, payment_id)
+    ORDERS.labels(status).inc()
     log.info("order placed", extra={"fields": {"order_id": order.id, "status": status}})
     return order
 

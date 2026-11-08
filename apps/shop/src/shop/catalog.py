@@ -19,6 +19,7 @@ from shop import __version__
 from shop.config import Settings
 from shop.db import Pool, make_pool, ping
 from shop.logs import configure_logging
+from shop.metrics import CACHE_REQUESTS
 from shop.web import install_common
 
 SERVICE = "catalog"
@@ -152,8 +153,11 @@ def list_products(deps: CatalogDeps) -> list[Product]:
     try:
         cached = deps.cache.get(CACHE_KEY)
         if cached is not None:
+            CACHE_REQUESTS.labels("hit").inc()
             return [Product.model_validate(p) for p in json.loads(cached)]
+        CACHE_REQUESTS.labels("miss").inc()
     except redis.RedisError:
+        CACHE_REQUESTS.labels("error").inc()
         log.warning("cache unavailable, reading from database")
     products = deps.repo.list()
     try:
