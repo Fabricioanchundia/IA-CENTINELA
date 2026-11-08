@@ -1,0 +1,50 @@
+[project]
+name = "centinela"
+version = "0.0.1"
+description = "AI SRE agent that detects, diagnoses and safely fixes incidents in a microservices app."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Fabricio Anchundia" }]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+centinela = "centinela.cli:main"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.18",
+    "pre-commit>=4.3",
+    "pytest>=8.4",
+    "pytest-cov>=7.0",
+    "ruff>=0.14",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/centinela"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/F/W: errors, I: imports, B: bugbear, UP: modern syntax, S: bandit (security), N: naming
+select = ["E", "F", "W", "I", "B", "UP", "S", "N"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]  # assert is fine in tests
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = "src"
+packages = ["centinela"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --cov=centinela --cov-report=term-missing"
