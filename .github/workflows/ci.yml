@@ -25,7 +25,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --locked
+        run: uv sync --locked --all-packages
 
       - name: Ruff (lint + security rules)
         run: |
@@ -49,3 +49,16 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.3
       - name: Gitleaks (via pre-commit)
         run: uvx pre-commit run gitleaks --all-files
+
+  shop-image:
+    name: shop image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the shop image
+        run: docker build -f apps/shop/Dockerfile -t centinela-shop:ci .
+      - name: Image size
+        run: docker image ls centinela-shop:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+      - name: Validate compose file
+        run: cp .env.example .env && docker compose config -q

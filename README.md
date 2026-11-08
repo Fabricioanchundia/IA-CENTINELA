@@ -40,8 +40,8 @@ flowchart LR
 | Phase | Scope | Status |
 |---|---|---|
 | 0 | Repo, security settings, CI, project skeleton | ✅ |
-| 1 | Fundamentals refresh (Kubernetes, PromQL) | ⏳ |
-| 2 | Demo microservices app (3 services + PostgreSQL + Redis) in Docker | ⏳ |
+| 1 | Fundamentals refresh (folded into later phases) | ⏭️ |
+| 2 | Demo microservices app (3 services + PostgreSQL + Redis) in Docker | ✅ |
 | 3 | Observability: Prometheus, Grafana, Loki, OpenTelemetry → **v0.1** | ⏳ |
 | 4 | Local Kubernetes (k3d) + Terraform | ⏳ |
 | 5 | Incident data pipeline + history | ⏳ |
@@ -62,12 +62,29 @@ The whole stack is built to run on a laptop with **16 GB RAM** and an **8 GB GPU
 | WSL2 (Docker, k3d, observability, agent) | capped at 6–8 GB |
 | LLM (Ollama, `qwen2.5:7b`) | runs in **GPU VRAM**, not system RAM |
 
+## Run the demo shop
+
+```bash
+cp .env.example .env            # first time only
+docker compose up -d --build    # catalog :8001, orders :8002, payments :8003
+./scripts/smoke.sh              # end-to-end check: list products, place and read an order
+docker compose down             # stop everything and free memory
+```
+
+| Service | Port | What it does | Depends on |
+|---|---|---|---|
+| `catalog` | 8001 | Products and prices | PostgreSQL, Redis (cache, optional) |
+| `orders` | 8002 | Places orders | catalog, payments, PostgreSQL |
+| `payments` | 8003 | Fake payment gateway | PostgreSQL |
+
+Every service exposes `/healthz`, `/readyz` and interactive API docs at `/docs`. Logs are JSON lines with a shared `request_id`. Design notes: [ADR-0003](docs/adr/0003-demo-shop-design.md).
+
 ## Quick start (development)
 
 Requirements: WSL2 (Ubuntu 24.04), [uv](https://docs.astral.sh/uv/), Docker.
 
 ```bash
-uv sync                      # install dependencies
+uv sync --all-packages       # install dependencies (agent + shop)
 uv run pre-commit install    # run checks before every commit
 uv run pytest                # tests
 uv run centinela --version
