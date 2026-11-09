@@ -62,3 +62,20 @@ def test_reader_role_can_only_read(store: PostgresIncidentStore) -> None:
 def test_migrate_is_idempotent(store: PostgresIncidentStore) -> None:
     store.migrate(reader_password=uuid.uuid4().hex)  # rotate
     store.migrate(reader_password=None)
+
+
+def test_alerts_and_similar_incidents(store: PostgresIncidentStore) -> None:
+    first = store.create((SERVICE_DOWN, ERRORS), T0)
+    store.resolve_alert(first, SERVICE_DOWN.fingerprint, T0 + timedelta(minutes=3))
+    alerts = store.alerts(first)
+    assert [a.name for a in alerts] == ["ServiceDown", "HighErrorRate"]
+    assert alerts[0].resolved_at == T0 + timedelta(minutes=3) and alerts[1].resolved_at is None
+    assert alerts[0].service == "payments"
+
+    second = store.create((SERVICE_DOWN,), T0 + timedelta(hours=1))
+    incident = store.get(second)
+    assert incident is not None
+    assert store.similar(incident) == []  # no postmortem written yet
+    store.close(first, "payments scaled to 0", "scaled back")
+    [past] = store.similar(incident)
+    assert past.id == first and past.root_cause == "payments scaled to 0"

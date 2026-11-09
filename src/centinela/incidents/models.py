@@ -48,6 +48,22 @@ class Alert:
         )
 
 
+@dataclass(frozen=True)
+class IncidentAlert:
+    """An alert as recorded in an incident (firing or already cleared)."""
+
+    name: str
+    severity: str
+    labels: dict[str, str]
+    summary: str
+    active_at: datetime
+    resolved_at: datetime | None
+
+    @property
+    def service(self) -> str | None:
+        return self.labels.get("service") or self.labels.get("upstream")
+
+
 @dataclass
 class OpenIncident:
     """An incident that still has at least one firing alert."""

@@ -1,6 +1,8 @@
 """Command-line entry point.
 
 centinela collect                       run the incident collector (in the cluster)
+centinela agent                         diagnose new incidents automatically (in the cluster)
+centinela diagnose ID [--dry-run]       diagnose one incident now (--dry-run: show the prompt)
 centinela incidents list                recent incidents with MTTD / MTTR
 centinela incidents show ID             timeline: alerts, logs, resolution
 centinela incidents close ID --cause .. --resolution ..   write the postmortem
@@ -12,11 +14,15 @@ import json
 import sys
 from collections.abc import Sequence
 from datetime import UTC
+from typing import TYPE_CHECKING, Any
 
 from centinela import __version__
 from centinela.config import Settings
 from centinela.incidents.models import Incident
 from centinela.incidents.store import PostgresIncidentStore, make_pool
+
+if TYPE_CHECKING:
+    from centinela.agent.diagnosis import Diagnoser
 
 
 def _fmt_seconds(value: float | None) -> str:
@@ -36,6 +42,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("collect", help="run the incident collector")
+    sub.add_parser("agent", help="diagnose new incidents automatically")
+    diag = sub.add_parser("diagnose", help="diagnose one incident with the local model")
+    diag.add_argument("id", type=int)
+    diag.add_argument("--dry-run", action="store_true", help="print the evidence, no model call")
+    diag.add_argument("--no-store", action="store_true", help="do not save the result")
 
     incidents = sub.add_parser("incidents", help="incident history")
     isub = incidents.add_subparsers(dest="action", required=True)
@@ -82,6 +93,96 @@ def run_collect() -> int:
     return 0
 
 
+def _diagnoser(settings: Settings) -> "Diagnoser":
+    from pathlib import Path
+
+    from centinela.agent.diagnosis import Diagnoser
+    from centinela.agent.evidence import EvidenceBuilder
+    from centinela.agent.k8s import KubeReader
+    from centinela.agent.llm import OllamaChat
+    from centinela.incidents.sources import PrometheusQuery
+
+    store = PostgresIncidentStore(make_pool(settings.database_url))
+    builder = EvidenceBuilder(
+        store,
+        PrometheusQuery(settings.prometheus_url),
+        KubeReader.in_cluster(settings.shop_namespace),
+        Path(settings.runbooks_dir),
+    )
+    llm = OllamaChat(
+        settings.ollama_url,
+        settings.ollama_model,
+        num_ctx=settings.ollama_num_ctx,
+        think=settings.ollama_think,
+    )
+    # ~3 characters per token, keep room for the schema and a ~600-token answer
+    return Diagnoser(store, builder, llm, max_prompt_chars=(settings.ollama_num_ctx - 900) * 3)
+
+
+def run_agent() -> int:
+    from datetime import timedelta
+
+    from prometheus_client import start_http_server
+
+    from centinela.agent.runner import AgentLoop
+    from centinela.logs import configure_logging
+
+    configure_logging("centinela-agent")
+    settings = Settings.from_env()
+    diagnoser = _diagnoser(settings)
+    start_http_server(settings.metrics_port)
+    AgentLoop(diagnoser.store, diagnoser, timedelta(seconds=settings.diagnose_delay_s)).run_forever(
+        settings.poll_interval_s
+    )
+    return 0
+
+
+def run_diagnose(args: argparse.Namespace) -> int:
+    import logging
+
+    logging.basicConfig(level=logging.ERROR)  # gaps in the evidence are shown as notes
+    settings = Settings.from_env()
+    diagnoser = _diagnoser(settings)
+    if args.dry_run:
+        evidence, messages = diagnoser.prompt(args.id)
+        print(messages[1]["content"])
+        chars = sum(len(m["content"]) for m in messages)
+        print(
+            f"\n-- {len(evidence.items)} evidence items, {chars} characters "
+            f"(~{chars // 4} tokens) + schema. No model call."
+        )
+        return 0
+    print(f"diagnosing incident {args.id} with {settings.ollama_model} ...", flush=True)
+    report = diagnoser.diagnose(args.id, store_result=not args.no_store)
+    print_diagnosis(report.payload())
+    return 0 if report.valid else 2
+
+
+def print_diagnosis(p: dict[str, Any]) -> None:
+    d = p["diagnosis"]
+    agree = "agrees" if p["agrees_with_baseline"] else "DISAGREES, check by hand"
+    print(
+        f"  model       : {p['model']}, {p['seconds']} s, {p['prompt_tokens']} prompt + "
+        f"{p['output_tokens']} output tokens, attempts {p['attempts']}"
+    )
+    print(
+        f"  root cause  : {d['root_cause_service']} ({d['category']}), "
+        f"confidence {d['confidence']:.2f}{'' if p['valid'] else '  [INVALID]'}"
+    )
+    print(f"  summary     : {d['summary']}")
+    dropped = d.get("dropped_symptoms") or []
+    note = f"  (dropped, no alert: {', '.join(dropped)})" if dropped else ""
+    print(f"  symptoms    : {', '.join(d['symptoms']) or '-'}{note}")
+    print(f"  evidence    : {', '.join(d['evidence']) or '-'}")
+    print(
+        f"  action      : {d['recommended_action']} {d['action_target']} "
+        f"(runbook {d['runbook']}) - suggestion only, nothing was executed"
+    )
+    print(f"  baseline    : {p['baseline_service']} ({p['baseline_rule']}) -> {agree}")
+    if p["errors"]:
+        print(f"  errors      : {'; '.join(p['errors'])}")
+
+
 def run_incidents(args: argparse.Namespace) -> int:
     store = _store()
     if args.action == "list":
@@ -97,6 +198,11 @@ def run_incidents(args: argparse.Namespace) -> int:
         print("timeline (UTC):")
         for event in store.events(args.id):
             payload = event["payload"]
+            if event["kind"] == "diagnosis":
+                at = event["at"].astimezone(UTC)
+                print(f"{at:%H:%M:%S}  diagnosis")
+                print_diagnosis(payload)
+                continue
             if event["kind"] == "logs":
                 payload = {"service": payload.get("service"), "lines": len(payload["lines"])}
             at = event["at"].astimezone(UTC)
@@ -123,7 +229,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_collect()
     if args.command == "incidents":
         return run_incidents(args)
-    print(f"centinela {__version__} - phase 5: incident history (try: centinela --help)")
+    if args.command == "agent":
+        return run_agent()
+    if args.command == "diagnose":
+        return run_diagnose(args)
+    print(f"centinela {__version__} - phase 6: AI diagnosis (read-only) (try: centinela --help)")
     return 0
 
 

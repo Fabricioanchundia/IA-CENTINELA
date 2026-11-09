@@ -1,0 +1,103 @@
+# Centinela AI agent (Phase 6): diagnoses every new incident with the local model (Ollama
+# on the Windows host, GPU). READ-ONLY: its ServiceAccount can only read the shop
+# (Terraform, infra/terraform/rbac.tf) and it never executes the action it recommends.
+apiVersion: v1
+kind: Service
+metadata:
+  name: centinela-agent
+spec:
+  selector:
+    app.kubernetes.io/name: centinela-agent
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: centinela-agent
+  labels:
+    app.kubernetes.io/name: centinela-agent
+spec:
+  replicas: 1 # one model call at a time: the GPU serves one request at a time anyway
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: centinela-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: centinela-agent
+    spec:
+      serviceAccountName: centinela-agent # read-only Role in `shop`, no Secrets
+      automountServiceAccountToken: true # needed to read pods, events and deployments
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.37
+          command: ["sh", "-c", "until nc -z incidents-db 5432; do echo waiting for incidents-db; sleep 2; done"]
+          resources:
+            requests: { cpu: 10m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 16Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: agent
+          image: centinela-agent:dev
+          imagePullPolicy: IfNotPresent # imported with `k3d image import`
+          command: ["centinela", "agent"]
+          env:
+            - name: PGHOST
+              value: incidents-db
+            - name: PROMETHEUS_URL
+              value: http://prometheus.observability:9090
+            - name: LOKI_URL
+              value: http://loki.observability:3100
+            # Ollama runs on Windows (GPU) and only listens on localhost there. Docker Desktop
+            # forwards host.docker.internal to it, so it stays closed to the network (ADR-0007).
+            - name: OLLAMA_URL
+              value: http://host.docker.internal:11434
+            - name: OLLAMA_MODEL
+              value: qwen3:8b
+            - name: OLLAMA_NUM_CTX
+              value: "4096"
+            - name: DIAGNOSE_DELAY_S
+              value: "60"
+            - name: POLL_INTERVAL_S
+              value: "15"
+            - name: RUNBOOKS_DIR
+              value: /app/runbooks
+          envFrom:
+            - secretRef:
+                name: incidents-db-credentials # writes the diagnosis as an incident event
+          ports:
+            - name: metrics
+              containerPort: 9100
+          livenessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 25m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 160Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
