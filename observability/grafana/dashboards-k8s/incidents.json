@@ -1,7 +1,7 @@
 {
   "uid": "centinela-incidents",
   "title": "Centinela · Incidents",
-  "description": "Incident history recorded by the collector: MTTD, MTTR and postmortems.",
+  "description": "Incident history recorded by the collector (MTTD, MTTR, postmortems) and the AI agent diagnoses.",
   "tags": [
     "centinela",
     "sre",
@@ -10,7 +10,7 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "30s",
   "time": {
     "from": "now-7d",
@@ -571,6 +571,408 @@
               {
                 "id": "unit",
                 "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "AI diagnosis (Phase 6: read-only)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "AI diagnoses",
+      "description": "Diagnoses written by the agent (automatic or `centinela diagnose`).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT count(*) AS diagnoses FROM incident_events WHERE kind = 'diagnosis' AND $__timeFilter(at)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Valid answers",
+      "description": "Answers that passed validation: existing evidence ids, evidence that mentions the blamed component.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT avg(CASE WHEN (payload->>'valid')::boolean THEN 100 ELSE 0 END) AS pct FROM incident_events WHERE kind = 'diagnosis' AND $__timeFilter(at)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Agrees with baseline rule",
+      "description": "Same root cause as the simple rule of thumb. Disagreements deserve a human look.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT avg(CASE WHEN (payload->>'agrees_with_baseline')::boolean THEN 100 ELSE 0 END) AS pct FROM incident_events WHERE kind = 'diagnosis' AND $__timeFilter(at)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "yellow",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Model time (avg)",
+      "description": "Time spent in the local model (Ollama, GPU) per diagnosis, retries included.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 23
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT avg((payload->>'seconds')::float) AS seconds FROM incident_events WHERE kind = 'diagnosis' AND $__timeFilter(at)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 15,
+      "type": "table",
+      "title": "AI diagnoses",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT incident_id AS incident, at, payload->'diagnosis'->>'root_cause_service' AS root_cause, payload->'diagnosis'->>'category' AS category, (payload->'diagnosis'->>'confidence')::float AS confidence, (payload->'diagnosis'->>'recommended_action') || ' ' || (payload->'diagnosis'->>'action_target') AS suggested_action, payload->>'baseline_service' AS baseline, (payload->>'agrees_with_baseline')::boolean AS agrees, (payload->>'valid')::boolean AS valid, (payload->>'seconds')::float AS model_s, payload->>'model' AS model, payload->'diagnosis'->>'summary' AS summary FROM incident_events WHERE kind = 'diagnosis' AND $__timeFilter(at) ORDER BY at DESC LIMIT 50",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "confidence"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "model_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "agrees"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "yes"
+                      },
+                      "false": {
+                        "color": "orange",
+                        "index": 1,
+                        "text": "NO"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "valid"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "true": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "yes"
+                      },
+                      "false": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "NO"
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }

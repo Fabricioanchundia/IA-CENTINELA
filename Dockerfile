@@ -1,4 +1,4 @@
-# Centinela agent image (incident collector now, the AI agent from Phase 6).
+# Centinela image: the incident collector and the AI agent (same code, two commands).
 # Build from the repository root:  docker build -t centinela-agent:dev .
 
 FROM ghcr.io/astral-sh/uv:0.13 AS uv
@@ -26,6 +26,8 @@ FROM python:3.12-slim
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app
 COPY --from=build --chown=app:app /app/.venv /app/.venv
+# Runbooks: the knowledge the agent quotes when it recommends an action
+COPY docs/runbooks /app/runbooks
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
 USER app

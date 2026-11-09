@@ -8,5 +8,6 @@
 .coverage
 .env
 docs
+!docs/runbooks
 tests
 apps/shop/tests

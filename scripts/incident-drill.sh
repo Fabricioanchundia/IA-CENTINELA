@@ -5,7 +5,7 @@
 #
 # 1. scales payments to 0 replicas (the "incident")
 # 2. waits until the collector opens an incident (detection -> MTTD)
-# 3. keeps payments down for DOWN_S seconds, then brings it back
+# 3. keeps payments down for DOWN_S seconds (the AI agent diagnoses it), then brings it back
 # 4. waits until every alert clears and the incident is resolved (-> MTTR)
 # 5. prints the incident timeline: alerts, logs evidence, resolution
 set -euo pipefail
@@ -33,8 +33,15 @@ done
 [[ -n "${id:-}" && "$id" -gt "$before" ]] || { echo "no incident after 10 min"; exit 1; }
 echo; echo "  incident $id opened at $(date +%T)"
 
-step "Keeping payments down for ${DOWN_S}s (more alerts join the same incident)"
+step "Keeping payments down for ${DOWN_S}s (alerts join the incident, the AI agent diagnoses it)"
 sleep "$DOWN_S"
+
+step "AI diagnosis, made automatically while payments was still down"
+if cli incidents show "$id" | grep -q "diagnosis"; then
+  cli incidents show "$id" | sed -n '/diagnosis$/,/baseline/p'
+else
+  echo "  no diagnosis yet. Check: kubectl -n centinela logs deploy/centinela-agent --tail=20"
+fi
 
 step "Bringing payments back at $(date +%T)"
 restore

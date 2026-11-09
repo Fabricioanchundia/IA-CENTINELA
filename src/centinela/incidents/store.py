@@ -10,7 +10,13 @@ from psycopg import Connection, sql
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 
-from centinela.incidents.models import Alert, Incident, OpenIncident, severity_rank
+from centinela.incidents.models import (
+    Alert,
+    Incident,
+    IncidentAlert,
+    OpenIncident,
+    severity_rank,
+)
 
 log = logging.getLogger("centinela.store")
 
@@ -84,6 +90,8 @@ class IncidentStore(Protocol):
     def get(self, incident_id: int) -> Incident | None: ...
     def events(self, incident_id: int) -> list[dict[str, Any]]: ...
     def close(self, incident_id: int, root_cause: str, resolution: str) -> bool: ...
+    def alerts(self, incident_id: int) -> list[IncidentAlert]: ...
+    def similar(self, incident: Incident, limit: int = 3) -> list[Incident]: ...
 
 
 # ---------------------------------------------------------------------------------------
@@ -266,6 +274,37 @@ class PostgresIncidentStore:
             ).fetchone()
         return row is not None
 
+    def alerts(self, incident_id: int) -> list[IncidentAlert]:
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT alertname, severity, labels, summary, active_at, resolved_at "
+                "FROM incident_alerts WHERE incident_id = %s ORDER BY active_at, alertname",
+                (incident_id,),
+            ).fetchall()
+        return [
+            IncidentAlert(
+                r["alertname"],
+                r["severity"],
+                r["labels"],
+                r["summary"],
+                r["active_at"],
+                r["resolved_at"],
+            )
+            for r in rows
+        ]
+
+    def similar(self, incident: Incident, limit: int = 3) -> list[Incident]:
+        """Past incidents with a written root cause, same category or same service first."""
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                f"SELECT {INCIDENT_COLUMNS} FROM incidents "  # noqa: S608
+                "WHERE id <> %s AND root_cause IS NOT NULL "
+                "  AND (category = %s OR service IS NOT DISTINCT FROM %s) "
+                "ORDER BY (category = %s) DESC, id DESC LIMIT %s",
+                (incident.id, incident.category, incident.service, incident.category, limit),
+            ).fetchall()
+        return [Incident(**r) for r in rows]
+
 
 # ---------------------------------------------------------------------------------------
 # In-memory fake (unit tests)
@@ -275,6 +314,7 @@ class _Row:
     incident: Incident
     alerts: dict[str, Alert] = field(default_factory=dict)
     resolved_alerts: set[str] = field(default_factory=set)
+    resolved_at: dict[str, datetime] = field(default_factory=dict)
     events: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -326,6 +366,7 @@ class InMemoryIncidentStore:
         row = self.rows[incident_id]
         if fingerprint in row.alerts and fingerprint not in row.resolved_alerts:
             row.resolved_alerts.add(fingerprint)
+            row.resolved_at[fingerprint] = at
             self.add_event(
                 incident_id, "alert_resolved", {"alert": row.alerts[fingerprint].name}, at
             )
@@ -354,3 +395,28 @@ class InMemoryIncidentStore:
             return False
         row.incident = replace(row.incident, root_cause=root_cause, resolution=resolution)
         return True
+
+    def alerts(self, incident_id: int) -> list[IncidentAlert]:
+        row = self.rows[incident_id]
+        return [
+            IncidentAlert(
+                a.name,
+                a.severity,
+                a.labels,
+                a.summary,
+                a.active_at,
+                row.resolved_at.get(fp) if fp in row.resolved_alerts else None,
+            )
+            for fp, a in sorted(row.alerts.items(), key=lambda kv: (kv[1].active_at, kv[1].name))
+        ]
+
+    def similar(self, incident: Incident, limit: int = 3) -> list[Incident]:
+        past = [
+            r.incident
+            for i, r in self.rows.items()
+            if i != incident.id
+            and r.incident.root_cause is not None
+            and (r.incident.category == incident.category or r.incident.service == incident.service)
+        ]
+        past.sort(key=lambda i: (i.category == incident.category, i.id), reverse=True)
+        return past[:limit]

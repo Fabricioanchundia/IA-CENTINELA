@@ -45,7 +45,7 @@ flowchart LR
 | 3 | Observability: Prometheus, Grafana, Loki, Alloy → **v0.1** | ✅ |
 | 4 | Local Kubernetes (k3d) + Terraform | ✅ |
 | 5 | Incident data pipeline + history (MTTD / MTTR) | ✅ |
-| 6 | Agent v1: diagnose only (read-only) → **v0.5** | ⏳ |
+| 6 | Agent v1: diagnose only (read-only) → **v0.5** | ✅ |
 | 7 | MCP server + human-approved actions | ⏳ |
 | 8 | Agent security + prompt-injection defense | ⏳ |
 | 9 | Chaos engineering + evaluation | ⏳ |
@@ -139,6 +139,25 @@ First Kubernetes drill (payments scaled to 0 for 3 minutes): **1 incident groupi
 | Runbooks | [`docs/runbooks/`](docs/runbooks/), linked from every alert: the knowledge base the agent will use |
 
 Grafana reads the history through a **`SELECT`-only** database role. Design notes: [ADR-0006](docs/adr/0006-incident-history.md).
+
+## AI diagnosis (read-only)
+
+`centinela agent` diagnoses every new incident automatically, one minute after detection, with a **local model on the laptop GPU** (Ollama, `qwen3:8b`, $0, no data leaves the machine). It gathers numbered evidence — alerts, per-service metrics, Kubernetes state, grouped error logs, runbooks and similar past incidents — and answers with a JSON diagnosis: root cause, symptoms, cited evidence, confidence and **one suggested action that is never executed**.
+
+```bash
+kubectl -n centinela exec deploy/centinela-agent -c agent -- centinela diagnose 2 --dry-run   # the exact prompt
+kubectl -n centinela exec deploy/centinela-agent -c agent -- centinela diagnose 2             # ask the model again
+```
+
+| Guardrail | How |
+|---|---|
+| Read-only | Own ServiceAccount: get/list pods, events, deployments in `shop`; no Secrets, no writes |
+| No invented facts | Answers must cite evidence ids that exist and mention the blamed component; one retry, then `unknown` |
+| Untrusted logs | Log and event text is flattened, shortened and fenced; instructions inside it are ignored |
+| Second opinion | A simple rule-based baseline runs on the same evidence; disagreements are flagged |
+| Fits the GPU | 4K-token context; low-value evidence is dropped first, never the instructions |
+
+First live drill: payments scaled to 0 → the agent answered **"Payments is down because it has been scaled to 0 replicas"** 72 s after detection, in **5 s of GPU time**, citing 6 evidence items, and suggested `scale_up payments` (not executed). Design and results: [ADR-0007](docs/adr/0007-ai-diagnosis-agent.md).
 
 ## Quick start (development)
 

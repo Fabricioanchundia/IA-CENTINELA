@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
+The agent diagnoses incidents by itself with a local model, read-only. First drill: correct root
+cause ("payments scaled to 0 replicas") 72 s after detection, 5 s of GPU time.
+
+### Added
+- AI diagnosis agent (`centinela agent`, `centinela diagnose ID [--dry-run]`): diagnoses each new
+  incident with a local model (Ollama `qwen3:8b` on the GPU) from numbered evidence (alerts,
+  metrics, Kubernetes state, grouped logs, runbooks, past incidents), validates that the answer
+  cites real evidence, compares it with a rule-based baseline and stores it in the incident.
+  Read-only: the suggested action is never executed.
+- Deployment `centinela-agent` with the read-only `centinela-agent` ServiceAccount, its own
+  `/metrics`, runbooks inside the image.
+- Grafana *Centinela · Incidents*: "AI diagnosis" row (valid answers, agreement with the
+  baseline, model time, diagnoses table).
+- `scripts/incident-drill.sh` shows the automatic diagnosis while the fault is still active.
+- Symptoms named by the model without their own alert are removed and recorded (`dropped_symptoms`).
+- ADR-0007 with the first measured results.
+
 ## [0.2.0] - 2026-11-09
 
 Kubernetes platform and incident history: the agent now has a memory.
