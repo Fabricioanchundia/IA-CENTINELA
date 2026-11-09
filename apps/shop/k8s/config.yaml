@@ -1,0 +1,12 @@
+# Non-secret settings shared by the shop services (the password lives in the
+# `postgres-credentials` Secret created by Terraform).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shop-config
+data:
+  PGHOST: postgres
+  PGPORT: "5432"
+  REDIS_URL: redis://redis:6379/0
+  CATALOG_URL: http://catalog:8000
+  PAYMENTS_URL: http://payments:8000

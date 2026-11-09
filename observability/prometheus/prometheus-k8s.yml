@@ -1,0 +1,65 @@
+# Prometheus inside Kubernetes (Phase 4). Same alert rules as the Compose setup:
+# the `job` and `service` labels are kept identical on purpose.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: local-k8s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # Shop pods are discovered automatically: any pod in `shop` annotated with
+  # prometheus.io/scrape: "true" is scraped on its `http` port.
+  - job_name: shop
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: [shop]
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        regex: "true"
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        regex: http
+        action: keep
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        target_label: service
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+
+  # Container metrics straight from the kubelet (cAdvisor): real memory and CPU per
+  # container, including OOM kills. Only a handful of series are kept.
+  - job_name: kubernetes-cadvisor
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    tls_config:
+      insecure_skip_verify: true # kubelet serving cert is self-signed in local k3s
+    authorization:
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: container_memory_working_set_bytes|container_spec_memory_limit_bytes|container_cpu_usage_seconds_total|container_oom_events_total
+        action: keep
+      - source_labels: [namespace]
+        regex: shop|observability|centinela
+        action: keep
+      - source_labels: [container]
+        regex: ""
+        action: drop
+
+  - job_name: observability
+    static_configs:
+      - targets: ["localhost:9090"]
+        labels: { service: prometheus }
+      - targets: ["loki:3100"]
+        labels: { service: loki }
+      - targets: ["alloy:12345"]
+        labels: { service: alloy }
+      - targets: ["grafana:3000"]
+        labels: { service: grafana }

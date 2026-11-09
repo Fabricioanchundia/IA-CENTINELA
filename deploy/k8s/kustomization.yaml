@@ -1,0 +1,7 @@
+# Everything that runs inside the cluster:  kubectl apply -k deploy/k8s
+# (namespaces, quotas, RBAC and Secrets must exist first: see infra/terraform)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../apps/shop/k8s
+  - ../../observability

@@ -1,0 +1,41 @@
+# Local Kubernetes for Centinela: one k3s server node inside Docker, nothing else.
+#   k3d cluster create --config deploy/k3d/cluster.yaml   (or ./scripts/k8s.sh up)
+#
+# Host ports are the same as with Docker Compose, so scripts/smoke*.sh work unchanged.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: centinela
+servers: 1
+agents: 0
+# Same minor version as kubectl (1.37) to respect the supported version skew
+image: rancher/k3s:v1.37.2-k3s1
+# ":direct" maps the port on the node itself (there is no k3d load balancer)
+ports:
+  - port: 127.0.0.1:8001:30801 # catalog
+    nodeFilters: [server:0:direct]
+  - port: 127.0.0.1:8002:30802 # orders
+    nodeFilters: [server:0:direct]
+  - port: 127.0.0.1:8003:30803 # payments
+    nodeFilters: [server:0:direct]
+  - port: 127.0.0.1:9090:30909 # prometheus
+    nodeFilters: [server:0:direct]
+  - port: 127.0.0.1:3100:30310 # loki
+    nodeFilters: [server:0:direct]
+  - port: 127.0.0.1:3000:30300 # grafana
+    nodeFilters: [server:0:direct]
+options:
+  k3d:
+    wait: true
+    timeout: 120s
+    disableLoadbalancer: true # one node: no need for the extra nginx container
+  k3s:
+    extraArgs:
+      # Not needed locally (we use NodePorts); saves ~100 MB
+      - arg: --disable=traefik
+        nodeFilters: [server:*]
+      - arg: --disable=servicelb
+        nodeFilters: [server:*]
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true
