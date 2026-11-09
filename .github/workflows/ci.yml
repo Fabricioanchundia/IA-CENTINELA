@@ -73,6 +73,10 @@ jobs:
         run: |
           docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
             --entrypoint promtool prom/prometheus:v3.16.0 check config /etc/prometheus/prometheus.yml
+      - name: Prometheus config for Kubernetes
+        run: |
+          docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" \
+            --entrypoint promtool prom/prometheus:v3.16.0 check config --syntax-only /etc/prometheus/prometheus-k8s.yml
       - name: Alert rule unit tests
         run: |
           docker run --rm -v "$PWD/observability/prometheus:/etc/prometheus:ro" -w /etc/prometheus \
@@ -81,11 +85,37 @@ jobs:
         run: |
           docker run --rm -v "$PWD/observability/loki:/etc/loki:ro" \
             grafana/loki:3.7.9 -config.file=/etc/loki/loki.yaml -verify-config
-      - name: Alloy config
+      - name: Alloy configs
         run: |
-          docker run --rm -v "$PWD/observability/alloy:/etc/alloy:ro" \
-            grafana/alloy:v1.21.3 fmt /etc/alloy/config.alloy
+          for f in config.alloy config-k8s.alloy; do
+            docker run --rm -v "$PWD/observability/alloy:/etc/alloy:ro" grafana/alloy:v1.21.3 fmt "/etc/alloy/$f"
+          done
       - name: Grafana dashboard is valid JSON
         run: python3 -m json.tool observability/grafana/dashboards/shop-overview.json > /dev/null
       - name: Compose file with all profiles
         run: cp .env.example .env && docker compose --profile obs config -q
+
+  kubernetes:
+    name: kubernetes and terraform
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KUSTOMIZE_VERSION: v5.8.3
+      KUBECONFORM_VERSION: v0.8.0
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install kustomize and kubeconform
+        run: |
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz" | tar xz -C /usr/local/bin kustomize
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar xz -C /usr/local/bin kubeconform
+      - name: Kubernetes manifests (strict schema validation)
+        run: kustomize build deploy/k8s | kubeconform -strict -summary -kubernetes-version 1.37.0
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.1
+      - name: Terraform fmt and validate
+        working-directory: infra/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false
+          terraform validate

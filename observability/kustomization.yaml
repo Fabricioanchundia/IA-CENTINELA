@@ -1,0 +1,35 @@
+# Observability on Kubernetes. Configuration files are the same ones used by Docker
+# Compose (only Prometheus and Alloy have a *-k8s variant for service discovery).
+# ServiceAccounts, RBAC and the Grafana admin Secret come from Terraform.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: centinela
+    includeSelectors: false
+resources:
+  - k8s/prometheus.yaml
+  - k8s/loki.yaml
+  - k8s/alloy.yaml
+  - k8s/grafana.yaml
+configMapGenerator:
+  - name: prometheus-config
+    files:
+      - prometheus.yml=prometheus/prometheus-k8s.yml
+      - prometheus/alerts.yml
+  - name: loki-config
+    files:
+      - loki/loki.yaml
+  - name: alloy-config
+    files:
+      - config.alloy=alloy/config-k8s.alloy
+  - name: grafana-datasources
+    files:
+      - grafana/provisioning/datasources/datasources.yaml
+  - name: grafana-dashboard-provider
+    files:
+      - grafana/provisioning/dashboards/dashboards.yaml
+  - name: grafana-dashboards
+    files:
+      - grafana/dashboards/shop-overview.json

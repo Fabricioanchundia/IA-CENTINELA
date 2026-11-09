@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     parser.parse_args(argv)
-    print(f"centinela {__version__} - phase 3: shop + observability ready")
+    print(f"centinela {__version__} - phase 4: shop + observability on Kubernetes")
     return 0
 
 

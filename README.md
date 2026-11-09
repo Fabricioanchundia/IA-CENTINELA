@@ -43,7 +43,7 @@ flowchart LR
 | 1 | Fundamentals refresh (folded into later phases) | ⏭️ |
 | 2 | Demo microservices app (3 services + PostgreSQL + Redis) in Docker | ✅ |
 | 3 | Observability: Prometheus, Grafana, Loki, Alloy → **v0.1** | ✅ |
-| 4 | Local Kubernetes (k3d) + Terraform | ⏳ |
+| 4 | Local Kubernetes (k3d) + Terraform | ✅ |
 | 5 | Incident data pipeline + history | ⏳ |
 | 6 | Agent v1: diagnose only (read-only) → **v0.5** | ⏳ |
 | 7 | MCP server + human-approved actions | ⏳ |
@@ -100,6 +100,23 @@ docker compose --profile obs down            # stop everything
 Try an incident: `docker compose stop payments`, wait ~2 minutes and look at the dashboard. `ServiceDown` (root cause) fires together with `HighErrorRate` on orders and `UpstreamErrors` (symptoms). Separating cause from symptoms is what the agent will do. Bring it back with `docker compose start payments`.
 
 Design notes: [ADR-0004](docs/adr/0004-observability-stack.md).
+
+## Run on Kubernetes (k3d + Terraform)
+
+```bash
+./scripts/k8s.sh up        # cluster, image, Terraform (namespaces, quotas, RBAC, secrets), workloads
+./scripts/smoke.sh && ./scripts/smoke-obs.sh   # same checks, same ports as with Compose
+./scripts/k8s.sh status    # pods and memory per pod
+./scripts/k8s.sh stop      # pause the cluster and free RAM (start resumes it)
+```
+
+| Layer | Tool | Where |
+|---|---|---|
+| Cluster | k3d (1 k3s node, Kubernetes 1.37) | `deploy/k3d/cluster.yaml` |
+| Platform: namespaces, quotas, RBAC, secrets | Terraform | `infra/terraform/` |
+| Workloads | Kustomize | `deploy/k8s/`, `apps/shop/k8s/`, `observability/k8s/` |
+
+Security by default: Pod Security Standards `restricted` on every namespace, non-root containers, read-only root filesystem, per-component ServiceAccounts, and a **read-only, no-secrets** identity for the agent. Design notes: [ADR-0005](docs/adr/0005-kubernetes-and-terraform.md).
 
 ## Quick start (development)
 

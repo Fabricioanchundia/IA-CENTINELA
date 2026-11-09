@@ -29,3 +29,8 @@ updates:
     groups:
       observability:
         patterns: ["*"]
+
+  - package-ecosystem: "terraform"
+    directory: "/infra/terraform"
+    schedule:
+      interval: "weekly"

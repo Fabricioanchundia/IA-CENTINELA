@@ -1,0 +1,74 @@
+// Grafana Alloy inside Kubernetes (Phase 4): tails the logs of the shop pods through
+// the Kubernetes API (no host mounts) and ships them to Loki with the same labels as
+// the Compose setup, so dashboards and queries keep working.
+
+discovery.kubernetes "pods" {
+	role = "pod"
+
+	namespaces {
+		names = ["shop"]
+	}
+}
+
+discovery.relabel "pods" {
+	targets = discovery.kubernetes.pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+		target_label  = "service"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_name"]
+		target_label  = "pod"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_container_name"]
+		target_label  = "container"
+	}
+
+	rule {
+		target_label = "project"
+		replacement  = "centinela"
+	}
+}
+
+loki.source.kubernetes "pods" {
+	targets    = discovery.relabel.pods.output
+	forward_to = [loki.process.json.receiver]
+}
+
+loki.process "json" {
+	stage.json {
+		expressions = {
+			level      = "level",
+			request_id = "request_id",
+		}
+	}
+
+	stage.labels {
+		values = {
+			level = "",
+		}
+	}
+
+	stage.structured_metadata {
+		values = {
+			request_id = "",
+		}
+	}
+
+	forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

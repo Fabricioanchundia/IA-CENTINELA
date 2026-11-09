@@ -1,0 +1,17 @@
+# Demo shop on Kubernetes. Namespace, quotas, RBAC and the database Secret come from
+# Terraform (infra/terraform); this folder only holds the workloads.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: shop
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: centinela
+    includeSelectors: false
+resources:
+  - config.yaml
+  - postgres.yaml
+  - redis.yaml
+  - catalog.yaml
+  - payments.yaml
+  - orders.yaml
+  - loadgen.yaml
