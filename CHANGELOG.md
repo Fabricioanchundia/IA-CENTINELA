@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format follows
 - Prometheus Kubernetes service discovery and kubelet (cAdvisor) container metrics.
 - CI job validating manifests (kubeconform, strict) and Terraform (fmt, validate).
 - ADR-0005.
+- CI job `compose smoke test`: starts the shop with Docker Compose and runs the end-to-end smoke test.
+
+### Fixed
+- PostgreSQL pinned back to major 17 after an automatic bump to 18 (incompatible data path and
+  data format); Dependabot now ignores PostgreSQL major versions.
 
 ## [0.1.0] - 2026-11-08
 

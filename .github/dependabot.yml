@@ -26,6 +26,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    ignore:
+      # Database major versions are a migration, not a dependency bump (ADR-0003)
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
     groups:
       observability:
         patterns: ["*"]
