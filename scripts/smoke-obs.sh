@@ -16,7 +16,7 @@ retry() { for _ in $(seq 1 30); do "$@" >/dev/null 2>&1 && return 0; sleep 2; do
 
 echo "1) Prometheus"
 retry curl -fsS "$PROM/-/ready" && pass "ready" || fail "not ready"
-up_count() { curl -fsS "$PROM/api/v1/query" --data-urlencode 'query=sum(up{job="shop"})' \
+up_count() { curl -fsS "$PROM/api/v1/query" --data-urlencode 'query=count(count by (service) (up{job="shop"} == 1))' \
   | json 'int(float(d["data"]["result"][0]["value"][1])) if d["data"]["result"] else 0'; }
 retry test "$(up_count)" -eq 3 && pass "3/3 shop services scraped" || fail "only $(up_count)/3 shop services up"
 rules=$(curl -fsS "$PROM/api/v1/rules" | json 'sum(len(g["rules"]) for g in d["data"]["groups"])')

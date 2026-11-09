@@ -63,3 +63,5 @@ scrape_configs:
         labels: { service: alloy }
       - targets: ["grafana:3000"]
         labels: { service: grafana }
+      - targets: ["incident-collector.centinela:9100"]
+        labels: { service: incident-collector }

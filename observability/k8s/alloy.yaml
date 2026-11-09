@@ -45,12 +45,19 @@ spec:
           ports:
             - name: http
               containerPort: 12345
+          env:
+            # Go runtime: collect garbage before hitting the container limit (ADR-0005)
+            - name: GOMEMLIMIT
+              value: 300MiB
           readinessProbe:
             httpGet: { path: /-/ready, port: http }
             periodSeconds: 10
+            timeoutSeconds: 3
           resources:
-            requests: { cpu: 25m, memory: 64Mi }
-            limits: { cpu: 250m, memory: 192Mi }
+            requests: { cpu: 50m, memory: 128Mi }
+            # 192Mi / 0.25 CPU was too tight: 98% of the memory limit, 64% of CPU periods
+            # throttled, readiness timeouts after the shop pods restarted (ADR-0005)
+            limits: { cpu: "1", memory: 384Mi }
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

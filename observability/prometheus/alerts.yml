@@ -4,13 +4,22 @@ groups:
   - name: shop
     rules:
       - alert: ServiceDown
-        expr: up{job="shop"} == 0
+        # Two ways a service is down:
+        # 1. its target answers badly: up == 0 (Compose, crashed pod)
+        # 2. it has NO target at all: every pod is gone (scaled to 0, deleted), so Kubernetes
+        #    discovery drops it and `up` disappears instead of becoming 0. Catch services seen
+        #    in the last hour that have no `up` series now (ADR-0006).
+        expr: |
+          up{job="shop"} == 0
+            or
+          (max by (job, service) (max_over_time(up{job="shop"}[1h])) unless on (service) up{job="shop"})
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: "{{ $labels.service }} is down"
-          description: "Prometheus cannot scrape {{ $labels.service }} ({{ $labels.instance }}) for more than 1 minute."
+          description: "Prometheus has had no healthy {{ $labels.service }} target for more than 1 minute (crashed, or no pods running)."
+          runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/service-down.md"
 
       - alert: HighErrorRate
         expr: |
@@ -24,6 +33,7 @@ groups:
         annotations:
           summary: "{{ $labels.service }} returns too many 5xx errors"
           description: "{{ $value | humanizePercentage }} of requests to {{ $labels.service }} fail with 5xx (threshold 5%)."
+          runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/high-error-rate.md"
 
       - alert: HighLatencyP95
         expr: |
@@ -36,6 +46,7 @@ groups:
         annotations:
           summary: "{{ $labels.service }} is slow"
           description: "p95 latency of {{ $labels.service }} is {{ $value | humanizeDuration }} (threshold 500ms)."
+          runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/high-latency.md"
 
       - alert: UpstreamErrors
         expr: sum by (upstream) (rate(shop_upstream_errors_total{job="shop"}[2m])) > 0
@@ -45,6 +56,7 @@ groups:
         annotations:
           summary: "orders cannot reach {{ $labels.upstream }}"
           description: "orders is failing calls to {{ $labels.upstream }} ({{ $value | printf \"%.2f\" }} errors/s)."
+          runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/upstream-errors.md"
 
       - alert: CacheDegraded
         expr: sum(rate(shop_cache_requests_total{job="shop", result="error"}[2m])) > 0
@@ -54,6 +66,7 @@ groups:
         annotations:
           summary: "catalog cache (Redis) is failing"
           description: "catalog is serving from PostgreSQL because Redis lookups fail."
+          runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/cache-degraded.md"
 
       - alert: HighMemoryUsage
         expr: process_resident_memory_bytes{job="shop"} > 100 * 1024 * 1024
@@ -63,3 +76,4 @@ groups:
         annotations:
           summary: "{{ $labels.service }} uses too much memory"
           description: "{{ $labels.service }} uses {{ $value | humanize1024 }}B of its 128MiB limit."
+          runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/high-memory.md"

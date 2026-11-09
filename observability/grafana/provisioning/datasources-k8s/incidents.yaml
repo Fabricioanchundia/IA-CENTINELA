@@ -1,0 +1,16 @@
+# Kubernetes only: the incident history database (read-only role created by the collector)
+apiVersion: 1
+
+datasources:
+  - name: Incidents
+    uid: incidents
+    type: grafana-postgresql-datasource
+    url: incidents-db.centinela.svc:5432
+    user: grafana_reader
+    jsonData:
+      database: centinela
+      sslmode: disable
+      postgresVersion: 1700
+      maxOpenConns: 2
+    secureJsonData:
+      password: $INCIDENTS_DB_READER_PASSWORD

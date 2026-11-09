@@ -1,0 +1,12 @@
+# Centinela's own workloads (namespace `centinela`): the incident database and the
+# collector. Secrets come from Terraform (infra/terraform/secrets.tf).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: centinela
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: centinela
+    includeSelectors: false
+resources:
+  - incidents-db.yaml
+  - collector.yaml

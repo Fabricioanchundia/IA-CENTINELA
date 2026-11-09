@@ -38,3 +38,45 @@ resource "kubernetes_secret_v1" "grafana" {
     GF_SECURITY_ADMIN_PASSWORD = random_password.grafana_admin.result
   }
 }
+
+# ---------------------------------------------------------------------------------------
+# Incident history (Phase 5): owner credentials for the collector and a read-only
+# password for Grafana. The collector creates the `grafana_reader` role with it.
+# ---------------------------------------------------------------------------------------
+resource "random_password" "incidents_db" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "incidents_reader" {
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_secret_v1" "incidents_db" {
+  metadata {
+    name      = "incidents-db-credentials"
+    namespace = kubernetes_namespace_v1.this["centinela"].metadata[0].name
+  }
+
+  data = {
+    POSTGRES_USER                = "centinela"
+    POSTGRES_PASSWORD            = random_password.incidents_db.result
+    POSTGRES_DB                  = "centinela"
+    PGUSER                       = "centinela"
+    PGPASSWORD                   = random_password.incidents_db.result
+    PGDATABASE                   = "centinela"
+    INCIDENTS_DB_READER_PASSWORD = random_password.incidents_reader.result
+  }
+}
+
+resource "kubernetes_secret_v1" "incidents_reader" {
+  metadata {
+    name      = "incidents-db-reader"
+    namespace = kubernetes_namespace_v1.this["observability"].metadata[0].name
+  }
+
+  data = {
+    INCIDENTS_DB_READER_PASSWORD = random_password.incidents_reader.result
+  }
+}

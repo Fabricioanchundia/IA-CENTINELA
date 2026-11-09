@@ -18,9 +18,12 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: "docker"
-    directory: "/apps/shop"
+    directories: ["/", "/apps/shop"]   # agent image and shop image
     schedule:
       interval: "weekly"
+    groups:
+      base-images:
+        patterns: ["*"]
 
   - package-ecosystem: "docker-compose"
     directory: "/"

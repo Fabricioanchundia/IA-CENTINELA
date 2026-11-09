@@ -109,8 +109,13 @@ wheels = [
 
 [[package]]
 name = "centinela"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
+dependencies = [
+    { name = "httpx" },
+    { name = "prometheus-client" },
+    { name = "psycopg", extra = ["binary", "pool"] },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -123,6 +128,11 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.28" },
+    { name = "prometheus-client", specifier = ">=0.26" },
+    { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.8" },
+]
 
 [package.metadata.requires-dev]
 dev = [
