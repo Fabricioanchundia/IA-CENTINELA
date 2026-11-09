@@ -27,9 +27,11 @@ configMapGenerator:
   - name: grafana-datasources
     files:
       - grafana/provisioning/datasources/datasources.yaml
+      - grafana/provisioning/datasources-k8s/incidents.yaml
   - name: grafana-dashboard-provider
     files:
       - grafana/provisioning/dashboards/dashboards.yaml
   - name: grafana-dashboards
     files:
       - grafana/dashboards/shop-overview.json
+      - grafana/dashboards-k8s/incidents.json

@@ -10,12 +10,12 @@ locals {
     }
     observability = {
       purpose      = "observability"
-      limit_memory = "1792Mi" # 4 workloads (~1088 Mi) + room for one rolling update
+      limit_memory = "2Gi" # 4 workloads (~1408 Mi) + room for one rolling update (Grafana, 512 Mi)
       pods         = 10
     }
     centinela = {
       purpose      = "agent"
-      limit_memory = "512Mi" # the agent arrives in Phase 6
+      limit_memory = "1Gi" # incident DB + collector (~384 Mi) now, the AI agent in Phase 6
       pods         = 5
     }
   }

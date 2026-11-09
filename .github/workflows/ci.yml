@@ -17,6 +17,23 @@ jobs:
     name: lint & test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Real PostgreSQL for the incident store tests (tests/test_store_postgres.py).
+    # No password at all (trust auth): the container only lives inside this job.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: centinela
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: centinela
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U centinela"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGUSER: centinela
+      PGDATABASE: centinela
     steps:
       - uses: actions/checkout@v7
 
@@ -62,6 +79,19 @@ jobs:
         run: docker image ls centinela-shop:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
       - name: Validate compose file
         run: cp .env.example .env && docker compose config -q
+
+  agent-image:
+    name: agent image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the agent image
+        run: docker build -t centinela-agent:ci .
+      - name: Image size and smoke run
+        run: |
+          docker image ls centinela-agent:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
+          docker run --rm centinela-agent:ci centinela --version
 
   compose-smoke:
     name: compose smoke test
@@ -109,8 +139,11 @@ jobs:
           for f in config.alloy config-k8s.alloy; do
             docker run --rm -v "$PWD/observability/alloy:/etc/alloy:ro" grafana/alloy:v1.21.3 fmt "/etc/alloy/$f"
           done
-      - name: Grafana dashboard is valid JSON
-        run: python3 -m json.tool observability/grafana/dashboards/shop-overview.json > /dev/null
+      - name: Grafana dashboards are valid JSON
+        run: |
+          for f in observability/grafana/dashboards/*.json observability/grafana/dashboards-k8s/*.json; do
+            python3 -m json.tool "$f" > /dev/null && echo "ok $f"
+          done
       - name: Compose file with all profiles
         run: cp .env.example .env && docker compose --profile obs config -q
 

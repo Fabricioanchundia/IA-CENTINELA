@@ -28,6 +28,10 @@ up() {
   docker build -q -f "$ROOT/apps/shop/Dockerfile" -t centinela-shop:dev "$ROOT"
   k3d image import centinela-shop:dev -c "$CLUSTER"
 
+  step "Building the agent image (incident collector) and importing it"
+  docker build -q -t centinela-agent:dev "$ROOT"
+  k3d image import centinela-agent:dev -c "$CLUSTER"
+
   step "Terraform: namespaces, quotas, RBAC and secrets"
   $TF init -input=false -upgrade=false >/dev/null
   $TF apply -input=false -auto-approve
@@ -37,23 +41,28 @@ up() {
 
   # Same image tag after a rebuild: restart so pods pick up the freshly imported image
   for app in "${APPS[@]}"; do kubectl -n shop rollout restart "deployment/$app" >/dev/null; done
+  kubectl -n centinela rollout restart deployment/incident-collector >/dev/null
 
   step "Waiting for everything to be ready"
   kubectl -n shop rollout status statefulset/postgres --timeout=300s
   for d in redis "${APPS[@]}"; do kubectl -n shop rollout status "deployment/$d" --timeout=300s; done
   for d in prometheus loki alloy grafana; do kubectl -n observability rollout status "deployment/$d" --timeout=300s; done
+  kubectl -n centinela rollout status statefulset/incidents-db --timeout=300s
+  kubectl -n centinela rollout status deployment/incident-collector --timeout=300s
 
   status
-  printf '\nShop: http://localhost:8002/docs   Grafana: http://localhost:3000   Prometheus: http://localhost:9090\n'
+  printf '\nShop: http://localhost:8002/docs   Grafana: http://localhost:3000 (Centinela · Incidents)   Prometheus: http://localhost:9090\n'
 }
 
 status() {
   step "Pods"
   kubectl get pods -n shop -o wide --no-headers | awk '{printf "  shop/%-32s %-10s restarts=%s\n", $1, $3, $4}'
   kubectl get pods -n observability --no-headers | awk '{printf "  observability/%-23s %-10s restarts=%s\n", $1, $3, $4}'
+  kubectl get pods -n centinela --no-headers 2>/dev/null | awk '{printf "  centinela/%-27s %-10s restarts=%s\n", $1, $3, $4}'
   step "Memory (metrics-server, may take ~1 min after start)"
   kubectl top pods -n shop --no-headers 2>/dev/null | sed 's/^/  shop\//' || echo "  not ready yet"
   kubectl top pods -n observability --no-headers 2>/dev/null | sed 's/^/  observability\//' || true
+  kubectl top pods -n centinela --no-headers 2>/dev/null | sed 's/^/  centinela\//' || true
   kubectl top nodes 2>/dev/null || true
 }
 

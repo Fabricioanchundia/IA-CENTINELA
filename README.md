@@ -44,7 +44,7 @@ flowchart LR
 | 2 | Demo microservices app (3 services + PostgreSQL + Redis) in Docker | ✅ |
 | 3 | Observability: Prometheus, Grafana, Loki, Alloy → **v0.1** | ✅ |
 | 4 | Local Kubernetes (k3d) + Terraform | ✅ |
-| 5 | Incident data pipeline + history | ⏳ |
+| 5 | Incident data pipeline + history (MTTD / MTTR) | ✅ |
 | 6 | Agent v1: diagnose only (read-only) → **v0.5** | ⏳ |
 | 7 | MCP server + human-approved actions | ⏳ |
 | 8 | Agent security + prompt-injection defense | ⏳ |
@@ -118,6 +118,28 @@ Design notes: [ADR-0004](docs/adr/0004-observability-stack.md).
 
 Security by default: Pod Security Standards `restricted` on every namespace, non-root containers, read-only root filesystem, per-component ServiceAccounts, and a **read-only, no-secrets** identity for the agent. Design notes: [ADR-0005](docs/adr/0005-kubernetes-and-terraform.md).
 
+## Incident history (MTTD / MTTR)
+
+A small collector (`centinela collect`, namespace `centinela`) turns Prometheus alerts into **incidents** stored in their own PostgreSQL: one outage = one incident, even when it fires several alerts. It attaches the error logs from Loki as evidence and measures how fast we noticed and how fast it was fixed.
+
+```bash
+./scripts/incident-drill.sh     # breaks payments for 3 minutes, waits for detection and recovery, prints the timeline
+kubectl -n centinela exec deploy/incident-collector -c collector -- centinela incidents list
+kubectl -n centinela exec deploy/incident-collector -c collector -- centinela incidents close 1 \
+  --cause "payments scaled to 0" --resolution "scaled back to 1 replica"
+```
+
+First Kubernetes drill (payments scaled to 0 for 3 minutes): **1 incident grouping 3 alerts**, **MTTD 69 s**, all clear 4.5 min after the fix. It also exposed a real monitoring gap: with zero pods the target vanishes, so `up == 0` never fired. `ServiceDown` now alerts on *absence* too ([ADR-0006](docs/adr/0006-incident-history.md#lessons-from-the-first-kubernetes-drill)).
+
+| | |
+|---|---|
+| **MTTD** | detected − started (alert `activeAt`) |
+| **MTTR** | resolved (last alert cleared) − detected |
+| Dashboard | Grafana → *Centinela · Incidents* (MTTD/MTTR by category, open incidents, postmortem coverage) |
+| Runbooks | [`docs/runbooks/`](docs/runbooks/), linked from every alert: the knowledge base the agent will use |
+
+Grafana reads the history through a **`SELECT`-only** database role. Design notes: [ADR-0006](docs/adr/0006-incident-history.md).
+
 ## Quick start (development)
 
 Requirements: WSL2 (Ubuntu 24.04), [uv](https://docs.astral.sh/uv/), Docker.
@@ -134,7 +156,7 @@ uv run centinela --version
 - Conventional Commits, feature branches, PRs with green CI before merge
 - `ruff` (lint + bandit security rules), `mypy --strict`, `pytest` with coverage
 - Secret scanning: GitHub push protection + `gitleaks` (pre-commit and CI)
-- Dependabot for Python dependencies and GitHub Actions
+- Dependabot for Python, GitHub Actions, Docker images and Terraform providers
 - Architecture Decision Records in [`docs/adr/`](docs/adr/)
 
 ## License

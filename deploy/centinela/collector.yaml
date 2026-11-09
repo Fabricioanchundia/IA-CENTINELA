@@ -1,0 +1,87 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: incident-collector
+spec:
+  selector:
+    app.kubernetes.io/name: incident-collector
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: incident-collector
+  labels:
+    app.kubernetes.io/name: incident-collector
+spec:
+  replicas: 1 # exactly one writer of the incident history
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: incident-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: incident-collector
+    spec:
+      automountServiceAccountToken: false # talks only to Prometheus, Loki and its database
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.37
+          command: ["sh", "-c", "until nc -z incidents-db 5432; do echo waiting for incidents-db; sleep 2; done"]
+          resources:
+            requests: { cpu: 10m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 16Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: collector
+          image: centinela-agent:dev
+          imagePullPolicy: IfNotPresent # imported with `k3d image import`
+          command: ["centinela", "collect"]
+          env:
+            - name: PGHOST
+              value: incidents-db
+            - name: PROMETHEUS_URL
+              value: http://prometheus.observability:9090
+            - name: LOKI_URL
+              value: http://loki.observability:3100
+            - name: POLL_INTERVAL_S
+              value: "15"
+          envFrom:
+            - secretRef:
+                name: incidents-db-credentials # PGUSER, PGPASSWORD, PGDATABASE, reader password
+          ports:
+            - name: metrics
+              containerPort: 9100
+          livenessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 25m, memory: 48Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

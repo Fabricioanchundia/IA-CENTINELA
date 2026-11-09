@@ -5,3 +5,4 @@ kind: Kustomization
 resources:
   - ../../apps/shop/k8s
   - ../../observability
+  - ../centinela

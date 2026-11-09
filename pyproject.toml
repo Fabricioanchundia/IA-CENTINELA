@@ -1,12 +1,16 @@
 [project]
 name = "centinela"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI SRE agent that detects, diagnoses and safely fixes incidents in a microservices app."
 readme = "README.md"
 license = "MIT"
 authors = [{ name = "Fabricio Anchundia" }]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "httpx>=0.28",
+    "prometheus-client>=0.26",
+    "psycopg[binary,pool]>=3.3.8",
+]
 
 [project.scripts]
 centinela = "centinela.cli:main"
