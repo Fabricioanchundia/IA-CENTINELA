@@ -63,6 +63,25 @@ jobs:
       - name: Validate compose file
         run: cp .env.example .env && docker compose config -q
 
+  compose-smoke:
+    name: compose smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Start the shop (waits for every healthcheck)
+        run: |
+          cp .env.example .env
+          docker compose up -d --build --wait --wait-timeout 180
+      - name: End-to-end smoke test
+        run: ./scripts/smoke.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose ps -a && docker compose logs --tail=80
+      - name: Stop
+        if: always()
+        run: docker compose down -v
+
   observability:
     name: observability config
     runs-on: ubuntu-latest

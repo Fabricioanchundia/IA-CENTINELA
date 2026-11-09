@@ -23,3 +23,4 @@ Centinela needs a realistic "patient": several services that depend on each othe
 - The whole shop fits in well under 1 GB, leaving room for Prometheus, Grafana and Loki in Phase 3.
 - Repositories are hidden behind small protocols with in-memory fakes, so unit tests run in ~1 s without Docker.
 - Shared database and no message queue keep it simple; both are documented trade-offs, not oversights.
+- **Lesson: database majors are migrations.** Dependabot proposed `postgres` 17 → 18 (compatibility score 64%) and the PR merged because CI only validated the Compose *syntax*. PostgreSQL 18 images store data in `/var/lib/postgresql/18/docker` and refuse to start with the old mount, and a new major cannot read old data files anyway. Fix: pin major 17, tell Dependabot to ignore `postgres` major updates, and add a CI job that actually starts the stack and runs `scripts/smoke.sh`, so a broken image can no longer reach `main`.

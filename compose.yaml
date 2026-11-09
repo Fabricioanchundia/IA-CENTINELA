@@ -36,7 +36,9 @@ x-shop-service: &shop-service
 
 services:
   postgres:
-    image: postgres:18-alpine
+    # Pinned to major 17: PostgreSQL 18 images use a new data path (/var/lib/postgresql/18/docker)
+    # and cannot read 17 data. A major upgrade needs pg_upgrade or dump/restore (ADR-0003).
+    image: postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-shop}
