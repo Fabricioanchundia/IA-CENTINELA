@@ -300,3 +300,23 @@ def test_agent_does_not_propose_when_it_should_not(answer: dict[str, Any], runbo
     loop, actions = agent_loop(answer, runbooks)
     loop.cycle()
     assert actions.recent() == []
+
+
+def test_no_proposal_if_the_incident_resolved_during_the_diagnosis(runbooks: Path) -> None:
+    store, actions = make_store(), InMemoryActionStore()
+
+    class SlowLlm(FakeLlm):
+        def chat_json(self, messages: list[dict[str, str]], schema: dict[str, Any]) -> Any:
+            store.resolve_incident(1, DETECTED + timedelta(minutes=2))  # alerts cleared meanwhile
+            return super().chat_json(messages, schema)
+
+    diagnoser = Diagnoser(store, builder(store, runbooks), SlowLlm([good_answer()]))
+    loop = AgentLoop(
+        store,
+        diagnoser,
+        timedelta(0),
+        clock=lambda: DETECTED + timedelta(minutes=3),
+        actions=actions,
+    )
+    assert loop.cycle() == [1]  # still diagnosed (useful for the postmortem)
+    assert actions.recent() == []  # but nothing proposed

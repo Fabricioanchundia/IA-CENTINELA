@@ -5,12 +5,14 @@ groups:
     rules:
       - alert: ServiceDown
         # Two ways a service is down:
-        # 1. its target answers badly: up == 0 (Compose, crashed pod)
+        # 1. NONE of its targets answers: max by service of up == 0. Per service, not per pod:
+        #    during a rollout one new pod may still be starting while the old one serves
+        #    (incident 8, ADR-0008).
         # 2. it has NO target at all: every pod is gone (scaled to 0, deleted), so Kubernetes
         #    discovery drops it and `up` disappears instead of becoming 0. Catch services seen
         #    in the last hour that have no `up` series now (ADR-0006).
         expr: |
-          up{job="shop"} == 0
+          max by (job, service) (up{job="shop"}) == 0
             or
           (max by (job, service) (max_over_time(up{job="shop"}[1h])) unless on (service) up{job="shop"})
         for: 1m

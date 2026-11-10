@@ -50,6 +50,16 @@ class AgentLoop:
         self.clock = clock
         self.actions = actions  # None: diagnose only (Phase 6 behaviour)
         self.done: set[int] = set()
+        self.warmed: set[int] = set()
+
+    def _warm(self) -> None:
+        warm = getattr(self.diagnoser.llm, "warm", None)
+        if warm is None:
+            return
+        try:
+            warm()
+        except Exception as exc:  # best effort: the diagnosis will load it anyway
+            log.warning("model warm-up failed", extra={"fields": {"error": repr(exc)}})
 
     def pending(self) -> list[int]:
         now = self.clock()
@@ -59,7 +69,14 @@ class AgentLoop:
             if incident_id in self.done:
                 continue
             incident = self.store.get(incident_id)
-            if incident is None or now - incident.detected_at < self.delay:
+            if incident is None:
+                continue
+            if now - incident.detected_at < self.delay:
+                # The model has to be in GPU memory when the delay ends; loading it cold took
+                # 140 s once (incident 8). Load it now, while the symptoms join the incident.
+                if incident_id not in self.warmed:
+                    self.warmed.add(incident_id)
+                    self._warm()
                 continue
             if any(e["kind"] == "diagnosis" for e in self.store.events(incident_id)):
                 self.done.add(incident_id)  # diagnosed before a restart
@@ -89,6 +106,15 @@ class AgentLoop:
         """Turn a trustworthy diagnosis into a PENDING action. A human still has to approve."""
         d = report.diagnosis
         if self.actions is None or not report.valid or d.recommended_action not in KINDS:
+            return
+        # The model may take a while: if the incident resolved meanwhile, there is nothing
+        # to fix any more (incident 8 got a proposal 2.5 minutes after it had resolved).
+        incident = self.store.get(report.incident_id)
+        if incident is None or incident.status != "open":
+            log.info(
+                "action not proposed: incident already resolved",
+                extra={"fields": {"incident_id": report.incident_id}},
+            )
             return
         try:
             proposal = check(d.recommended_action, d.action_target)

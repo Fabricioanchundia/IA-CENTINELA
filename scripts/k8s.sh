@@ -6,6 +6,7 @@
 #   ./scripts/k8s.sh stop     pause the cluster (keeps everything, frees RAM)
 #   ./scripts/k8s.sh start    resume a paused cluster
 #   ./scripts/k8s.sh console  open the approval console on http://localhost:8400 (Ctrl+C to stop)
+#   ./scripts/k8s.sh mcp      print the MCP client configuration (Claude Desktop, VS Code...)
 #   ./scripts/k8s.sh delete   remove the cluster and the local Terraform state
 set -euo pipefail
 
@@ -43,7 +44,7 @@ up() {
   # Same image tag after a rebuild: restart so pods pick up the freshly imported image
   for app in "${APPS[@]}"; do kubectl -n shop rollout restart "deployment/$app" >/dev/null; done
   kubectl -n centinela rollout restart deployment/incident-collector deployment/centinela-agent \
-    deployment/centinela-executor deployment/centinela-console >/dev/null
+    deployment/centinela-executor deployment/centinela-console deployment/centinela-mcp >/dev/null
 
   step "Waiting for everything to be ready"
   kubectl -n shop rollout status statefulset/postgres --timeout=300s
@@ -54,6 +55,7 @@ up() {
   kubectl -n centinela rollout status deployment/centinela-agent --timeout=300s
   kubectl -n centinela rollout status deployment/centinela-executor --timeout=300s
   kubectl -n centinela rollout status deployment/centinela-console --timeout=300s
+  kubectl -n centinela rollout status deployment/centinela-mcp --timeout=300s
 
   status
   printf '\nShop: http://localhost:8002/docs   Grafana: http://localhost:3000 (Centinela · Incidents)   Prometheus: http://localhost:9090\n'
@@ -89,9 +91,24 @@ case "${1:-}" in
     echo "(only this computer can reach it; Ctrl+C to close)"
     exec kubectl -n centinela port-forward --address 127.0.0.1 svc/centinela-console 8400:8000
     ;;
+  mcp)
+    cat <<'JSON'
+Add this server to your MCP client (Claude Desktop: Settings > Developer > Edit Config).
+It runs inside the cluster; the client only gets read tools and propose_action.
+{
+  "mcpServers": {
+    "centinela": {
+      "command": "wsl.exe",
+      "args": ["kubectl", "-n", "centinela", "exec", "-i", "deploy/centinela-mcp", "-c", "mcp",
+               "--", "centinela", "mcp"]
+    }
+  }
+}
+JSON
+    ;;
   delete)
     k3d cluster delete "$CLUSTER"
     rm -f "$ROOT"/infra/terraform/terraform.tfstate*
     ;;
-  *) sed -n '2,10p' "$0"; exit 1 ;;
+  *) sed -n '2,11p' "$0"; exit 1 ;;
 esac

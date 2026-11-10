@@ -48,6 +48,15 @@ class OllamaChat:
         self.think = think
         self.http = client or httpx.Client(base_url=base_url, timeout=timeout_s)
 
+    def warm(self) -> None:
+        """Load the model into GPU memory without generating anything (Ollama: empty prompt)."""
+        try:
+            self.http.post(
+                "/api/generate", json={"model": self.model, "keep_alive": "10m"}
+            ).raise_for_status()
+        except httpx.HTTPError as exc:
+            raise LlmError(f"warm-up failed: {exc!r}") from exc
+
     def chat_json(self, messages: list[dict[str, str]], schema: dict[str, Any]) -> LlmReply:
         started = time.monotonic()
         try:

@@ -1,6 +1,6 @@
 [project]
 name = "centinela"
-version = "0.5.0"
+version = "0.7.0"
 description = "AI SRE agent that detects, diagnoses and safely fixes incidents in a microservices app."
 readme = "README.md"
 license = "MIT"
@@ -9,6 +9,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.120",
     "httpx>=0.28",
+    "mcp>=2.3.0",
     "prometheus-client>=0.26",
     "psycopg[binary,pool]>=3.3.8",
     "python-multipart>=0.0.20",

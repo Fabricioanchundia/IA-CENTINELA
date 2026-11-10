@@ -46,7 +46,7 @@ flowchart LR
 | 4 | Local Kubernetes (k3d) + Terraform | ✅ |
 | 5 | Incident data pipeline + history (MTTD / MTTR) | ✅ |
 | 6 | Agent v1: diagnose only (read-only) → **v0.5** | ✅ |
-| 7 | MCP server + human-approved actions | 🚧 |
+| 7 | MCP server + human-approved actions → **v0.7** | ✅ |
 | 8 | Agent security + prompt-injection defense | ⏳ |
 | 9 | Chaos engineering + evaluation | ⏳ |
 | 10 | Cloud demo + full CI/CD | ⏳ |
@@ -181,6 +181,17 @@ kubectl -n centinela exec deploy/incident-collector -c collector -- centinela re
 **Approve from the browser:** `./scripts/k8s.sh console` opens the approval console on http://localhost:8400 (password: `terraform -chdir=infra/terraform output -raw console_password`). It has no Kubernetes rights, its own database role that can only record decisions, signed sessions, CSRF tokens, login lockout and a no-JavaScript Content-Security-Policy.
 
 `./scripts/incident-drill.sh` asks you to approve the agent's proposal in the terminal. First approved fix: **15 s from "approve" to payments healthy again** (`0/0 -> 1/1 ready after 9 s`). Design notes: [ADR-0008](docs/adr/0008-human-approved-actions.md).
+
+## MCP server
+
+Other AI assistants (Claude Desktop, IDE copilots) can connect to Centinela over the Model Context Protocol with **the same power as the agent: read and propose, never act**.
+
+| Tool | What it does |
+|---|---|
+| `list_incidents`, `get_incident`, `list_actions` | read-only: incidents, alerts, the AI diagnosis, the audit trail |
+| `propose_action` | creates a **pending** action (same policy as the agent); a human still approves it |
+
+There is no approve or execute tool. The server runs inside the cluster as the `centinela_mcp` database role, which can insert proposals but not their status, so every proposal starts as `pending`. Untrusted text from the shop is labelled as such. `./scripts/k8s.sh mcp` prints the client configuration; `uv run python scripts/mcp-check.py` connects the same way and checks the policy. Design notes: [ADR-0009](docs/adr/0009-mcp-server.md).
 
 ## Quick start (development)
 

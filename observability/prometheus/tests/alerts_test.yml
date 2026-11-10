@@ -21,11 +21,24 @@ tests:
               severity: critical
               job: shop
               service: payments
-              instance: payments:8000
             exp_annotations:
               summary: "payments is down"
               description: "Prometheus has had no healthy payments target for more than 1 minute (crashed, or no pods running)."
               runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/service-down.md"
+
+  - name: a new pod still starting during a rollout is not an outage (incident 8)
+    interval: 15s
+    input_series:
+      # the old pod keeps serving the whole time
+      - series: 'up{job="shop", service="payments", instance="10.42.0.7:8000"}'
+        values: "1x20"
+      # the new pod is discovered before it listens: up == 0 for 3 minutes
+      - series: 'up{job="shop", service="payments", instance="10.42.0.9:8000"}'
+        values: "0x12 1x8"
+    alert_rule_test:
+      - eval_time: 2m30s
+        alertname: ServiceDown
+        exp_alerts: []
 
   - name: payments scaled to 0 (the target disappears, up never becomes 0)
     interval: 15s
