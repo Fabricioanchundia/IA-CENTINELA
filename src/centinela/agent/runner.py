@@ -16,7 +16,9 @@ from types import FrameType
 
 from prometheus_client import Counter, Histogram
 
-from centinela.agent.diagnosis import Diagnoser
+from centinela.actions.policy import KINDS, PolicyError, check
+from centinela.actions.store import ActionStore
+from centinela.agent.diagnosis import Diagnoser, Report
 from centinela.incidents.store import IncidentStore
 
 log = logging.getLogger("centinela.agent")
@@ -30,6 +32,7 @@ DIAGNOSIS_SECONDS = Histogram(
     buckets=(1, 2, 5, 10, 20, 30, 60, 120, 300),
 )
 LLM_TOKENS = Counter("centinela_llm_tokens_total", "Tokens processed by the model.", ["kind"])
+PROPOSALS = Counter("centinela_action_proposals_total", "Actions proposed to a human.", ["kind"])
 
 
 class AgentLoop:
@@ -39,11 +42,13 @@ class AgentLoop:
         diagnoser: Diagnoser,
         delay: timedelta = timedelta(seconds=60),
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        actions: ActionStore | None = None,
     ) -> None:
         self.store = store
         self.diagnoser = diagnoser
         self.delay = delay
         self.clock = clock
+        self.actions = actions  # None: diagnose only (Phase 6 behaviour)
         self.done: set[int] = set()
 
     def pending(self) -> list[int]:
@@ -76,8 +81,35 @@ class AgentLoop:
             DIAGNOSIS_SECONDS.observe(report.seconds)
             LLM_TOKENS.labels("prompt").inc(report.prompt_tokens)
             LLM_TOKENS.labels("output").inc(report.output_tokens)
+            self.propose(report)
             diagnosed.append(incident_id)
         return diagnosed
+
+    def propose(self, report: Report) -> None:
+        """Turn a trustworthy diagnosis into a PENDING action. A human still has to approve."""
+        d = report.diagnosis
+        if self.actions is None or not report.valid or d.recommended_action not in KINDS:
+            return
+        try:
+            proposal = check(d.recommended_action, d.action_target)
+        except PolicyError as exc:
+            log.info("action not proposed", extra={"fields": {"reason": str(exc)}})
+            return
+        second_opinion = (
+            "baseline rule agrees"
+            if report.agrees_with_baseline
+            else f"WARNING: baseline rule blames {report.baseline_service}"
+        )
+        reason = f"{d.summary} (confidence {d.confidence:.2f}, {second_opinion})"
+        action = self.actions.propose(
+            report.incident_id, proposal, reason[:500], "centinela-agent", self.clock()
+        )
+        if action is not None:
+            PROPOSALS.labels(action.kind).inc()
+            log.warning(
+                "action waiting for human approval",
+                extra={"fields": {"action_id": action.id, "action": action.describe()}},
+            )
 
     def run_forever(self, interval_s: float) -> None:
         stop = {"now": False}

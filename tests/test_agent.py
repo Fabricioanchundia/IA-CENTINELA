@@ -483,3 +483,14 @@ def test_symptoms_without_their_own_alert_are_dropped(runbooks: Path) -> None:
     assert errors == [] and d is not None
     assert d.symptoms == ["orders"]  # has HighErrorRate; payments is the root cause
     assert d.dropped_symptoms == ["catalog"]  # healthy, no alert: a small hallucination
+
+
+def test_upstream_errors_count_as_a_symptom_of_the_caller(runbooks: Path) -> None:
+    store = InMemoryIncidentStore()
+    store.create((SERVICE_DOWN, UPSTREAM), DETECTED)  # HighErrorRate has not joined yet
+    incident = store.get(1)
+    assert incident is not None
+    ev = builder(store, runbooks).build(incident)
+    d, errors = validate(good_answer(evidence=["E1"], symptoms=["orders", "catalog"]), ev)
+    assert errors == [] and d is not None
+    assert d.symptoms == ["orders"] and d.dropped_symptoms == ["catalog"]

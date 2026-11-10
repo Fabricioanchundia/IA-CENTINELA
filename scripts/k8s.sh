@@ -41,7 +41,8 @@ up() {
 
   # Same image tag after a rebuild: restart so pods pick up the freshly imported image
   for app in "${APPS[@]}"; do kubectl -n shop rollout restart "deployment/$app" >/dev/null; done
-  kubectl -n centinela rollout restart deployment/incident-collector deployment/centinela-agent >/dev/null
+  kubectl -n centinela rollout restart deployment/incident-collector deployment/centinela-agent \
+    deployment/centinela-executor >/dev/null
 
   step "Waiting for everything to be ready"
   kubectl -n shop rollout status statefulset/postgres --timeout=300s
@@ -50,6 +51,7 @@ up() {
   kubectl -n centinela rollout status statefulset/incidents-db --timeout=300s
   kubectl -n centinela rollout status deployment/incident-collector --timeout=300s
   kubectl -n centinela rollout status deployment/centinela-agent --timeout=300s
+  kubectl -n centinela rollout status deployment/centinela-executor --timeout=300s
 
   status
   printf '\nShop: http://localhost:8002/docs   Grafana: http://localhost:3000 (Centinela · Incidents)   Prometheus: http://localhost:9090\n'

@@ -46,7 +46,7 @@ flowchart LR
 | 4 | Local Kubernetes (k3d) + Terraform | ✅ |
 | 5 | Incident data pipeline + history (MTTD / MTTR) | ✅ |
 | 6 | Agent v1: diagnose only (read-only) → **v0.5** | ✅ |
-| 7 | MCP server + human-approved actions | ⏳ |
+| 7 | MCP server + human-approved actions | 🚧 |
 | 8 | Agent security + prompt-injection defense | ⏳ |
 | 9 | Chaos engineering + evaluation | ⏳ |
 | 10 | Cloud demo + full CI/CD | ⏳ |
@@ -158,6 +158,27 @@ kubectl -n centinela exec deploy/centinela-agent -c agent -- centinela diagnose 
 | Fits the GPU | 4K-token context; low-value evidence is dropped first, never the instructions |
 
 First live drill: payments scaled to 0 → the agent answered **"Payments is down because it has been scaled to 0 replicas"** 72 s after detection, in **5 s of GPU time**, citing 6 evidence items, and suggested `scale_up payments` (not executed). Design and results: [ADR-0007](docs/adr/0007-ai-diagnosis-agent.md).
+
+## Human-approved actions
+
+After a valid diagnosis the agent **proposes** a fix. Nothing happens until a human decides; then a separate executor runs it with the smallest permission possible and checks it worked.
+
+```bash
+kubectl -n centinela exec deploy/incident-collector -c collector -- centinela actions
+kubectl -n centinela exec deploy/incident-collector -c collector -- centinela approve 1 --by "your name"
+kubectl -n centinela exec deploy/incident-collector -c collector -- centinela reject 1 --by "your name" --note "why"
+```
+
+| Guardrail | How |
+|---|---|
+| Three identities | agent proposes (read-only) · human approves (no Kubernetes rights) · executor acts (`get`/`patch` on 4 named deployments) |
+| Allowlist in code | `scale_up` (1–3 replicas) or `restart`, on catalog, orders, payments, redis. Never the database, never delete |
+| A human decides | the agent cannot approve itself; name recorded; rejecting needs a reason |
+| Limits | one open action per incident, expires after 15 min, max 3 executions per hour |
+| Re-check and verify | policy checked again before acting; `executed` only when the replicas are ready again |
+| Audit trail | every step in the incident timeline and in Grafana; `EXECUTOR_DRY_RUN` kill switch |
+
+`./scripts/incident-drill.sh` asks you to approve the agent's proposal in the terminal. First approved fix: **15 s from "approve" to payments healthy again** (`0/0 -> 1/1 ready after 9 s`). Design notes: [ADR-0008](docs/adr/0008-human-approved-actions.md).
 
 ## Quick start (development)
 

@@ -61,6 +61,15 @@ UPSTREAM_QUERY = 'sum by (upstream) (rate(shop_upstream_errors_total{job="shop"}
 CACHE_QUERY = 'sum by (result) (rate(shop_cache_requests_total{job="shop"}[2m]))'
 
 
+def alert_components(alert: IncidentAlert) -> set[str]:
+    """Components an alert is about. UpstreamErrors is raised BY orders (the caller whose
+    requests fail) ABOUT its upstream: both are involved, orders as the symptom."""
+    components = {alert.service} if alert.service else set()
+    if alert.name == "UpstreamErrors":
+        components.add("orders")
+    return components
+
+
 @dataclass(frozen=True)
 class Item:
     id: str
@@ -195,7 +204,7 @@ class EvidenceBuilder:
                 "alert",
                 f"{a.name} ({a.severity}) {labels}",
                 f"{a.summary}. Active since {_hms(a.active_at)} UTC, {state}.",
-                {a.service} if a.service else set(),
+                alert_components(a),
             )
 
     # -- metrics --------------------------------------------------------------------------

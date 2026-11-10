@@ -183,3 +183,53 @@ resource "kubernetes_role_binding_v1" "agent_reader" {
     namespace = local.agent_ns
   }
 }
+
+# ---------------------------------------------------------------------------------------
+# Centinela executor (Phase 7): the ONLY identity that can change the shop, and only:
+#   - get + patch, on four NAMED stateless deployments (resourceNames), and their /scale
+# No create, no delete, no exec, no Secrets, no PostgreSQL, nothing outside `shop`.
+# It runs only actions a human approved (src/centinela/actions/executor.py).
+# ---------------------------------------------------------------------------------------
+locals {
+  executor_targets = ["catalog", "orders", "payments", "redis"] # = actions/policy.py TARGETS
+}
+
+resource "kubernetes_service_account_v1" "executor" {
+  metadata {
+    name      = "centinela-executor"
+    namespace = local.agent_ns
+  }
+}
+
+resource "kubernetes_role_v1" "executor" {
+  metadata {
+    name      = "centinela-executor"
+    namespace = local.shop_ns
+  }
+
+  rule {
+    api_groups     = ["apps"]
+    resources      = ["deployments", "deployments/scale"]
+    resource_names = local.executor_targets
+    verbs          = ["get", "patch"]
+  }
+}
+
+resource "kubernetes_role_binding_v1" "executor" {
+  metadata {
+    name      = "centinela-executor"
+    namespace = local.shop_ns
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role_v1.executor.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = kubernetes_service_account_v1.executor.metadata[0].name
+    namespace = local.agent_ns
+  }
+}
