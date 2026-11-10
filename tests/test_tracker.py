@@ -4,6 +4,8 @@ from centinela.incidents.models import Alert, OpenIncident, fingerprint
 from centinela.incidents.tracker import (
     AttachAlert,
     CreateIncident,
+    RecentIncident,
+    ReopenIncident,
     ResolveAlert,
     ResolveIncident,
     plan,
@@ -80,3 +82,29 @@ def test_alert_from_prometheus_payload() -> None:
     assert a.summary == "payments is down"
     assert a.active_at.tzinfo is not None
     assert a.fingerprint == Alert.from_prometheus(raw).fingerprint
+
+
+# Phase 9: late alerts (incident 16 in the chaos run). PostgreSQL went down at T0, the incident
+# resolved at T0+5m, but a latency alert that became active at T0+2m fired only at T0+7m.
+POSTGRES = RecentIncident(15, T0, T0 + timedelta(minutes=5))
+LATE = alert("HighLatencyP95", "warning", T0 + timedelta(minutes=2), service="orders")
+
+
+def test_a_late_alert_reopens_the_incident_it_belongs_to() -> None:
+    actions = plan([LATE], [], T0 + timedelta(minutes=7), [POSTGRES])
+    assert actions == [ReopenIncident(15), AttachAlert(15, LATE)]
+
+
+def test_a_new_problem_after_resolution_is_a_new_incident() -> None:
+    fresh = alert("HighLatencyP95", "warning", T0 + timedelta(minutes=6), service="catalog")
+    [create] = plan([fresh], [], T0 + timedelta(minutes=8), [POSTGRES])
+    assert isinstance(create, CreateIncident)
+    # one late alert plus one new one: the late one goes back to its incident, the new one
+    # opens a new incident whose start (and MTTD) is not dragged back by the late alert
+    actions = plan([LATE, fresh], [], T0 + timedelta(minutes=8), [POSTGRES])
+    assert actions == [ReopenIncident(15), AttachAlert(15, LATE), CreateIncident((fresh,))]
+
+
+def test_reopening_only_within_ten_minutes() -> None:
+    [create] = plan([LATE], [], T0 + timedelta(minutes=16), [POSTGRES])
+    assert isinstance(create, CreateIncident)

@@ -21,6 +21,18 @@ class Workload:
     name: str
     desired: int
     ready: int
+    # Phase 9: when the last rollout (a new version or new settings) happened. "What changed?"
+    # is the first question in any incident. Scaling does not count as a rollout.
+    rollout_at: datetime | None = None
+    revision: str | None = None
+
+
+def _rollout_at(item: dict[str, Any]) -> datetime | None:
+    """Last update of the Progressing condition: set when a rollout starts or completes."""
+    for cond in item.get("status", {}).get("conditions", []) or []:
+        if cond.get("type") == "Progressing" and cond.get("lastUpdateTime"):
+            return datetime.fromisoformat(str(cond["lastUpdateTime"]).replace("Z", "+00:00"))
+    return None
 
 
 @dataclass(frozen=True)
@@ -74,12 +86,15 @@ class KubeReader:
             ("statefulset", f"/apis/apps/v1/namespaces/{self.ns}/statefulsets"),
         ):
             for item in self._get(path):
+                meta = item["metadata"]
                 out.append(
                     Workload(
                         kind,
-                        item["metadata"]["name"],
+                        meta["name"],
                         int(item.get("spec", {}).get("replicas", 1)),
                         int(item.get("status", {}).get("readyReplicas", 0)),
+                        _rollout_at(item) if kind == "deployment" else None,
+                        (meta.get("annotations") or {}).get("deployment.kubernetes.io/revision"),
                     )
                 )
         return sorted(out, key=lambda w: w.name)

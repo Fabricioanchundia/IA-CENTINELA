@@ -193,3 +193,18 @@ def test_mcp_role_can_only_propose(store: PostgresIncidentStore) -> None:
     for statement in forbidden:
         with psycopg.connect(url) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute(statement)
+
+
+def test_reopen_and_recently_resolved(store: PostgresIncidentStore) -> None:
+    detected = T0 + timedelta(minutes=1)
+    incident_id = store.create((SERVICE_DOWN,), detected)
+    store.resolve_incident(incident_id, detected + timedelta(minutes=4))
+    [recent] = store.recently_resolved(detected)
+    assert (recent.id, recent.started_at) == (incident_id, SERVICE_DOWN.active_at)
+    assert store.recently_resolved(detected + timedelta(minutes=5)) == []
+    store.reopen(incident_id, detected + timedelta(minutes=6), "late alert")
+    [open_] = store.open_incidents()
+    assert open_.id == incident_id
+    store.reopen(incident_id, detected + timedelta(minutes=7), "again")  # no-op when open
+    kinds = [e["kind"] for e in store.events(incident_id)]
+    assert kinds.count("incident_reopened") == 1

@@ -1,0 +1,138 @@
+{
+  "name": "synthetic-orders-down-cascade",
+  "source": "synthetic",
+  "fault": "orders scaled to 0: nothing calls catalog or payments any more, their traffic drops",
+  "expected": {
+    "root_cause": [
+      "orders"
+    ],
+    "category": [
+      "service_down"
+    ],
+    "actions": [
+      "scale_up:orders"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "orders is down",
+      "category": "ServiceDown",
+      "service": "orders",
+      "severity": "critical",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "ServiceDown",
+        "severity": "critical",
+        "labels": {
+          "alertname": "ServiceDown",
+          "severity": "critical",
+          "job": "shop",
+          "service": "orders"
+        },
+        "summary": "orders is down",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "ServiceDown (critical) job=shop, service=orders",
+        "body": "orders is down. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     0.3    0%    40ms    75MiB\norders      NO SCRAPE TARGET (no running instance found)\npayments     1     0.0    0%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1\ndeployment orders: 0/0  <- SCALED TO ZERO\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E5",
+        "kind": "runbook",
+        "title": "service-down.md (for ServiceDown)",
+        "body": "## What it means\nPrometheus has no healthy target for a shop service: the process is dead or unreachable\n(`up == 0`), or **no pod exists at all** (scaled to 0, deleted). In Kubernetes the second\ncase does not produce `up == 0`: the target simply disappears, so the alert also checks for\nservices seen in the last hour that have no `up` series now.\n## Fix\n- Crash loop after a deploy → roll back: `kubectl -n shop rollout undo deploy/<service>`.\n- Scaled to 0 → `kubectl -n shop scale deploy/<service> --replicas=1`.\n- Stuck pod → `kubectl -n shop rollout restart deploy/<service>`.\n- OOMKilled → see [high-memory.md](high-memory.md).",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 0,
+        "ready": 0,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

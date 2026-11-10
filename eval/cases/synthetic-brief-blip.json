@@ -1,0 +1,147 @@
+{
+  "name": "synthetic-brief-blip",
+  "source": "synthetic",
+  "fault": "a short burst of errors on orders that already stopped (no fault any more)",
+  "expected": {
+    "root_cause": [
+      "orders",
+      "unknown"
+    ],
+    "category": [
+      "error_spike",
+      "unknown"
+    ],
+    "actions": [
+      "none"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "orders returns too many 5xx errors",
+      "category": "HighErrorRate",
+      "service": "orders",
+      "severity": "critical",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "HighErrorRate",
+        "severity": "critical",
+        "labels": {
+          "alertname": "HighErrorRate",
+          "severity": "critical",
+          "job": "shop",
+          "service": "orders"
+        },
+        "summary": "orders returns too many 5xx errors",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "HighErrorRate (critical) job=shop, service=orders",
+        "body": "orders returns too many 5xx errors. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.5    0%    40ms    75MiB\norders       1     1.5    0%    40ms    75MiB\npayments     1     1.5    0%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": []
+      },
+      {
+        "id": "E5",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "body": "3x error \"request timed out\"",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E6",
+        "kind": "runbook",
+        "title": "high-error-rate.md (for HighErrorRate)",
+        "body": "## What it means\nThe service is up but failing requests. In this shop it is almost always a **symptom**:\n`orders` returns 503 when `catalog` or `payments` cannot answer.\n## Fix\n- Dependency down → fix the dependency first ([service-down.md](service-down.md)); this alert\n  clears by itself about 2 minutes later (rate window).\n- Started right after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database errors → check `kubectl -n shop get pods -l app.kubernetes.io/name=postgres`.",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

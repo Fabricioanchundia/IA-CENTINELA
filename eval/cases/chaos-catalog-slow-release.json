@@ -1,0 +1,189 @@
+{
+  "name": "chaos-catalog-slow-release",
+  "source": "chaos",
+  "fault": "new catalog release adds 1.5 s to every request (fix: rollback)",
+  "expected": {
+    "root_cause": [
+      "catalog"
+    ],
+    "category": [
+      "high_latency"
+    ],
+    "actions": [
+      "none"
+    ]
+  },
+  "evidence": {
+    "items": [
+      {
+        "id": "E1",
+        "body": "catalog is slow. Active since 16:33:39 UTC, still firing.",
+        "kind": "alert",
+        "title": "HighLatencyP95 (warning) service=catalog",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E2",
+        "body": "orders is slow. Active since 16:33:54 UTC, still firing.",
+        "kind": "alert",
+        "title": "HighLatencyP95 (warning) service=orders",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E3",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     0.6     -    2.4s    74MiB\norders       1     0.3    0%    2.4s    70MiB\npayments     1     0.3     -    23ms    68MiB",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E4",
+        "body": "orders -> catalog/payments: no failed calls",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "services": []
+      },
+      {
+        "id": "E5",
+        "body": "deployment catalog: 1/1  <- NEW ROLLOUT (revision 17, 16:32:15 UTC, 1 min before the first alert)\ndeployment loadgen: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E6",
+        "body": "Unhealthy catalog-6d666f4fb5-fg2qb x1: Readiness probe failed: Get \"http://10.42.0.208:8000/readyz\": dial tcp 10.42.0.208:8000: connect: connection refused\nUnhealthy catalog-f7658bb8c-q4js7 x2: Startup probe failed: Get \"http://10.42.0.216:8000/healthz\": dial tcp 10.42.0.216:8000: connect: connection refused",
+        "kind": "k8s_events",
+        "title": "Kubernetes warning events (untrusted text)",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E7",
+        "body": "## What it means\n1 in 20 requests is slow. Usually CPU throttling, a slow database or a slow dependency.\n## Fix\n- Throttled → raise the CPU limit in the manifest and redeploy.\n- Slow after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database saturated → restart the offending client, not the database.",
+        "kind": "runbook",
+        "title": "high-latency.md (for HighLatencyP95)",
+        "services": []
+      }
+    ],
+    "notes": [],
+    "alerts": [
+      {
+        "name": "HighLatencyP95",
+        "labels": {
+          "service": "catalog",
+          "severity": "warning",
+          "alertname": "HighLatencyP95"
+        },
+        "summary": "catalog is slow",
+        "severity": "warning",
+        "active_at": "2026-11-10T16:33:39.119218+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "HighLatencyP95",
+        "labels": {
+          "service": "orders",
+          "severity": "warning",
+          "alertname": "HighLatencyP95"
+        },
+        "summary": "orders is slow",
+        "severity": "warning",
+        "active_at": "2026-11-10T16:33:54.119218+00:00",
+        "resolved_at": null
+      }
+    ],
+    "version": 1,
+    "incident": {
+      "id": 18,
+      "title": "catalog is slow",
+      "status": "open",
+      "service": "catalog",
+      "category": "HighLatencyP95",
+      "severity": "warning",
+      "resolution": null,
+      "root_cause": null,
+      "started_at": "2026-11-10T16:33:39.119218+00:00",
+      "detected_at": "2026-11-10T16:39:01.146720+00:00",
+      "resolved_at": null
+    },
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "ready": 1,
+        "desired": 1,
+        "revision": "17",
+        "rollout_at": "2026-11-10T16:32:15+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "loadgen",
+        "ready": 1,
+        "desired": 1,
+        "revision": "15",
+        "rollout_at": "2026-11-10T15:16:01+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "ready": 1,
+        "desired": 1,
+        "revision": "18",
+        "rollout_at": "2026-11-10T16:06:25+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "ready": 1,
+        "desired": 1,
+        "revision": "18",
+        "rollout_at": "2026-11-10T16:21:25+00:00"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "ready": 1,
+        "desired": 1,
+        "revision": null,
+        "rollout_at": null
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "ready": 1,
+        "desired": 1,
+        "revision": "1",
+        "rollout_at": "2026-11-09T16:05:50+00:00"
+      }
+    ],
+    "observed_at": "2026-11-10T16:40:01.146720+00:00",
+    "quarantined": []
+  },
+  "live": {
+    "incident_id": 18,
+    "title": "catalog is slow",
+    "mttd_seconds": 322.0,
+    "detected_to_diagnosis_seconds": 94.4,
+    "model": "qwen3:8b",
+    "model_seconds": 17.24,
+    "root_cause": "catalog",
+    "category": "high_latency",
+    "action": "rollback:catalog",
+    "valid": true,
+    "baseline": "catalog",
+    "proposals": [],
+    "summary": "The catalog service's new rollout is likely causing high latency and affecting orders."
+  }
+}

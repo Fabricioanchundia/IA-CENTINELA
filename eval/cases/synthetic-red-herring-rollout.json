@@ -1,0 +1,180 @@
+{
+  "name": "synthetic-red-herring-rollout",
+  "source": "synthetic",
+  "fault": "payments scaled to 0; catalog had an unrelated, healthy rollout 5 minutes before",
+  "expected": {
+    "root_cause": [
+      "payments"
+    ],
+    "category": [
+      "service_down"
+    ],
+    "actions": [
+      "scale_up:payments"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "payments is down",
+      "category": "ServiceDown",
+      "service": "payments",
+      "severity": "critical",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "ServiceDown",
+        "severity": "critical",
+        "labels": {
+          "alertname": "ServiceDown",
+          "severity": "critical",
+          "job": "shop",
+          "service": "payments"
+        },
+        "summary": "payments is down",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "UpstreamErrors",
+        "severity": "warning",
+        "labels": {
+          "alertname": "UpstreamErrors",
+          "severity": "warning",
+          "job": "shop",
+          "upstream": "payments"
+        },
+        "summary": "orders cannot reach payments",
+        "active_at": "2026-11-10T15:00:15+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "ServiceDown (critical) job=shop, service=payments",
+        "body": "payments is down. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "alert",
+        "title": "UpstreamErrors (warning) job=shop, upstream=payments",
+        "body": "orders cannot reach payments. Active since 15:00:15 UTC, still firing.",
+        "services": [
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.5    0%    40ms    75MiB\norders       1     1.5   40%    40ms    75MiB\npayments    NO SCRAPE TARGET (no running instance found)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E4",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> payments: 1.10 failed calls/s",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E5",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1  <- NEW ROLLOUT (revision 5, 14:55:00 UTC, 5 min before the first alert)\ndeployment orders: 1/1\ndeployment payments: 0/0  <- SCALED TO ZERO\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": [
+          "catalog",
+          "payments"
+        ]
+      },
+      {
+        "id": "E6",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "body": "6x error \"payments unavailable\"",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E7",
+        "kind": "runbook",
+        "title": "service-down.md (for ServiceDown)",
+        "body": "## What it means\nPrometheus has no healthy target for a shop service: the process is dead or unreachable\n(`up == 0`), or **no pod exists at all** (scaled to 0, deleted). In Kubernetes the second\ncase does not produce `up == 0`: the target simply disappears, so the alert also checks for\nservices seen in the last hour that have no `up` series now.\n## Fix\n- Crash loop after a deploy → roll back: `kubectl -n shop rollout undo deploy/<service>`.\n- Scaled to 0 → `kubectl -n shop scale deploy/<service> --replicas=1`.\n- Stuck pod → `kubectl -n shop rollout restart deploy/<service>`.\n- OOMKilled → see [high-memory.md](high-memory.md).",
+        "services": []
+      },
+      {
+        "id": "E8",
+        "kind": "runbook",
+        "title": "upstream-errors.md (for UpstreamErrors)",
+        "body": "## What it means\n`orders` cannot reach `catalog` or `payments` (label `upstream`): connection refused,\ntimeout (2 s) or a non-200 answer. It points directly at the dependency to investigate.\n## Fix\nFix the upstream service ([service-down.md](service-down.md)). Restarting `orders` does\n**not** help: it is the messenger, not the cause.",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-10T14:55:00+00:00",
+        "revision": "5"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 0,
+        "ready": 0,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

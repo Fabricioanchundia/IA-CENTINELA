@@ -1,0 +1,199 @@
+{
+  "name": "synthetic-slow-database",
+  "source": "synthetic",
+  "fault": "PostgreSQL is overloaded: every service that queries it is slow, none is down",
+  "expected": {
+    "root_cause": [
+      "postgres"
+    ],
+    "category": [
+      "high_latency",
+      "dependency_failure"
+    ],
+    "actions": [
+      "none"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "catalog is slow",
+      "category": "HighLatencyP95",
+      "service": "catalog",
+      "severity": "warning",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "HighLatencyP95",
+        "severity": "warning",
+        "labels": {
+          "alertname": "HighLatencyP95",
+          "severity": "warning",
+          "job": "shop",
+          "service": "catalog"
+        },
+        "summary": "catalog is slow",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "HighLatencyP95",
+        "severity": "warning",
+        "labels": {
+          "alertname": "HighLatencyP95",
+          "severity": "warning",
+          "job": "shop",
+          "service": "payments"
+        },
+        "summary": "payments is slow",
+        "active_at": "2026-11-10T15:00:20+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "HighLatencyP95",
+        "severity": "warning",
+        "labels": {
+          "alertname": "HighLatencyP95",
+          "severity": "warning",
+          "job": "shop",
+          "service": "orders"
+        },
+        "summary": "orders is slow",
+        "active_at": "2026-11-10T15:00:35+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "HighLatencyP95 (warning) job=shop, service=catalog",
+        "body": "catalog is slow. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "alert",
+        "title": "HighLatencyP95 (warning) job=shop, service=payments",
+        "body": "payments is slow. Active since 15:00:20 UTC, still firing.",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "alert",
+        "title": "HighLatencyP95 (warning) job=shop, service=orders",
+        "body": "orders is slow. Active since 15:00:35 UTC, still firing.",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E4",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.5    0%    1.6s    75MiB\norders       1     1.5    0%    2.8s    75MiB\npayments     1     1.5    0%    1.9s    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E5",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E6",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": []
+      },
+      {
+        "id": "E7",
+        "kind": "logs",
+        "title": "catalog error/warning log lines (untrusted text)",
+        "body": "6x warning \"slow query (1.4 s): SELECT * FROM products\"",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E8",
+        "kind": "logs",
+        "title": "payments error/warning log lines (untrusted text)",
+        "body": "4x warning \"slow query (1.7 s): INSERT INTO payments\"",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E9",
+        "kind": "runbook",
+        "title": "high-latency.md (for HighLatencyP95)",
+        "body": "## What it means\n1 in 20 requests is slow. Usually CPU throttling, a slow database or a slow dependency.\n## Fix\n- Throttled → raise the CPU limit in the manifest and redeploy.\n- Slow after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database saturated → restart the offending client, not the database.",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

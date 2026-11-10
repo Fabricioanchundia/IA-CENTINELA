@@ -20,9 +20,11 @@ from prometheus_client import Counter, Gauge
 from centinela.incidents.models import Alert
 from centinela.incidents.store import IncidentStore
 from centinela.incidents.tracker import (
+    REOPEN_WINDOW,
     Action,
     AttachAlert,
     CreateIncident,
+    ReopenIncident,
     ResolveAlert,
     ResolveIncident,
     plan,
@@ -65,7 +67,12 @@ class Collector:
     def cycle(self) -> list[Action]:
         now = self.clock()
         firing = self.alerts.firing()
-        actions = plan(firing, self.store.open_incidents(), now)
+        actions = plan(
+            firing,
+            self.store.open_incidents(),
+            now,
+            self.store.recently_resolved(now - REOPEN_WINDOW),
+        )
         for action in actions:
             self._apply(action, now)
         FIRING_ALERTS.set(len(firing))
@@ -88,6 +95,16 @@ class Collector:
             self._attach_logs(action.incident_id, action.alert, now)
         elif isinstance(action, ResolveAlert):
             self.store.resolve_alert(action.incident_id, action.fingerprint, now)
+        elif isinstance(action, ReopenIncident):
+            self.store.reopen(
+                action.incident_id,
+                now,
+                "a late alert that became active while this incident was open",
+            )
+            log.warning(
+                "incident reopened by a late alert",
+                extra={"fields": {"incident_id": action.incident_id}},
+            )
         elif isinstance(action, ResolveIncident):
             self.store.resolve_incident(action.incident_id, now)
             INCIDENTS_RESOLVED.inc()

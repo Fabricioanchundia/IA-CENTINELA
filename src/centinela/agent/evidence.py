@@ -37,6 +37,7 @@ ALERT_RUNBOOKS = {
 
 # Metrics are read shortly after detection: the moment the incident was visible.
 METRICS_AFTER_DETECTION = timedelta(seconds=60)
+RECENT_ROLLOUT = timedelta(minutes=10)  # a rollout this close before the incident is a suspect
 RUNBOOK_CHARS = 900
 UNTRUSTED_CHARS = 160
 
@@ -287,11 +288,17 @@ class EvidenceBuilder:
             return
         when = "now" if ev.incident.status == "open" else "now, AFTER the incident: may differ"
         ev.workloads = self.kube.workloads()
+        start = ev.incident.started_at
+        recent = {
+            w.name
+            for w in ev.workloads
+            if w.rollout_at and start - RECENT_ROLLOUT <= w.rollout_at <= ev.observed_at
+        }
         ev.add(
             "workloads",
             f"shop deployments and statefulsets, ready/desired replicas ({when})",
-            "\n".join(_workload_line(w) for w in ev.workloads),
-            {w.name for w in ev.workloads if w.ready < w.desired or w.desired == 0},
+            "\n".join(_workload_line(w, start, w.name in recent) for w in ev.workloads),
+            {w.name for w in ev.workloads if w.ready < w.desired or w.desired == 0} | recent,
         )
         pods = self.kube.pods()
         unhealthy = [p for p in pods if not p.ready or p.restarts or p.last_termination]
@@ -356,13 +363,23 @@ class EvidenceBuilder:
             )
 
 
-def _workload_line(w: Workload) -> str:
+def _workload_line(w: Workload, incident_start: datetime, recent: bool = False) -> str:
     flag = (
         "  <- SCALED TO ZERO"
         if w.desired == 0
         else ("  <- NOT READY" if w.ready < w.desired else "")
     )
-    return f"{w.kind} {w.name}: {w.ready}/{w.desired}{flag}"
+    change = ""
+    if recent and w.rollout_at:
+        minutes = (incident_start - w.rollout_at).total_seconds() / 60
+        when = (
+            f"{minutes:.0f} min before the first alert"
+            if minutes >= 0
+            else f"{-minutes:.0f} min after the first alert"
+        )
+        rev = f"revision {w.revision}, " if w.revision else ""
+        change = f"  <- NEW ROLLOUT ({rev}{_hms(w.rollout_at)} UTC, {when})"
+    return f"{w.kind} {w.name}: {w.ready}/{w.desired}{flag}{change}"
 
 
 def _pod_line(p: PodState) -> str:

@@ -12,19 +12,28 @@ import logging
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Protocol
 
+from centinela.agent import snapshot
 from centinela.agent.evidence import (
     ALERT_RUNBOOKS,
     APP_SERVICES,
     COMPONENTS,
+    RECENT_ROLLOUT,
     Evidence,
-    EvidenceBuilder,
     alert_components,
 )
 from centinela.agent.guard import trusted_signals
 from centinela.agent.llm import JsonChat, LlmError, LlmReply
+from centinela.incidents.models import Incident
 from centinela.incidents.store import IncidentStore
+
+
+class BuildsEvidence(Protocol):
+    """EvidenceBuilder in the cluster, ReplayBuilder (snapshot.py) in evaluations."""
+
+    def build(self, incident: Incident) -> Evidence: ...
+
 
 log = logging.getLogger("centinela.diagnosis")
 
@@ -142,6 +151,12 @@ class Report:
     injection_suspected: int = 0
     quarantined: list[str] = field(default_factory=list)
     trusted_signals: list[str] = field(default_factory=list)
+    # Phase 9: deployments with fewer ready replicas than desired (or scaled to 0). Scaling up
+    # anything else changes nothing: our scale_up only brings a deployment back to 1 replica.
+    under_replicated: list[str] = field(default_factory=list)
+    # Phase 9: deployments rolled out shortly before the incident. Restarting one of them runs
+    # the same new version again: if the release is the cause, the fix is a rollback.
+    recent_rollouts: list[str] = field(default_factory=list)
 
     @property
     def agrees_with_baseline(self) -> bool:
@@ -234,7 +249,7 @@ class Diagnoser:
     def __init__(
         self,
         store: IncidentStore,
-        builder: EvidenceBuilder,
+        builder: BuildsEvidence,
         llm: JsonChat,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         max_prompt_chars: int = 9000,
@@ -248,6 +263,7 @@ class Diagnoser:
         # naive=True is the red team's level 0: no untrusted-text rule, no <evidence> fence,
         # no grounding checks. Never used by the agent itself.
         self.naive = naive
+        self.last_evidence: Evidence | None = None
 
     def prompt(self, incident_id: int) -> tuple[Evidence, list[dict[str, str]]]:
         incident = self.store.get(incident_id)
@@ -336,9 +352,22 @@ class Diagnoser:
             injection_suspected=len(evidence.quarantined),
             quarantined=[f"{q.where}: {', '.join(q.rules)}" for q in evidence.quarantined],
             trusted_signals=sorted(trusted_signals(evidence)),
+            under_replicated=sorted(
+                w.name for w in evidence.workloads if w.desired == 0 or w.ready < w.desired
+            ),
+            recent_rollouts=sorted(
+                w.name
+                for w in evidence.workloads
+                if w.rollout_at
+                and evidence.incident.started_at - RECENT_ROLLOUT
+                <= w.rollout_at
+                <= evidence.observed_at
+            ),
         )
+        self.last_evidence = evidence
         if store_result:
-            self.store.add_event(incident_id, "diagnosis", report.payload(), report.at)
+            payload = {**report.payload(), "evidence": snapshot.to_json(evidence)}
+            self.store.add_event(incident_id, "diagnosis", payload, report.at)
         log.info(
             "incident diagnosed",
             extra={

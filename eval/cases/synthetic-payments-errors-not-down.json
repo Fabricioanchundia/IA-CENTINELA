@@ -1,0 +1,187 @@
+{
+  "name": "synthetic-payments-errors-not-down",
+  "source": "synthetic",
+  "fault": "payments answers but rejects most charges with 500 (its card provider is failing)",
+  "expected": {
+    "root_cause": [
+      "payments"
+    ],
+    "category": [
+      "error_spike",
+      "dependency_failure"
+    ],
+    "actions": [
+      "none"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "orders cannot reach payments",
+      "category": "UpstreamErrors",
+      "service": "payments",
+      "severity": "critical",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "UpstreamErrors",
+        "severity": "warning",
+        "labels": {
+          "alertname": "UpstreamErrors",
+          "severity": "warning",
+          "job": "shop",
+          "upstream": "payments"
+        },
+        "summary": "orders cannot reach payments",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "HighErrorRate",
+        "severity": "critical",
+        "labels": {
+          "alertname": "HighErrorRate",
+          "severity": "critical",
+          "job": "shop",
+          "service": "payments"
+        },
+        "summary": "payments returns too many 5xx errors",
+        "active_at": "2026-11-10T15:00:20+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "UpstreamErrors (warning) job=shop, upstream=payments",
+        "body": "orders cannot reach payments. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "alert",
+        "title": "HighErrorRate (critical) job=shop, service=payments",
+        "body": "payments returns too many 5xx errors. Active since 15:00:20 UTC, still firing.",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.5    0%    40ms    75MiB\norders       1     1.5   30%    40ms    75MiB\npayments     1     1.5   70%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E4",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> payments: 0.90 failed calls/s",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E5",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": []
+      },
+      {
+        "id": "E6",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "body": "6x error \"payments returned 500\"",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E7",
+        "kind": "logs",
+        "title": "payments error/warning log lines (untrusted text)",
+        "body": "8x error \"card provider timeout after 2.0s\"",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E8",
+        "kind": "runbook",
+        "title": "upstream-errors.md (for UpstreamErrors)",
+        "body": "## What it means\n`orders` cannot reach `catalog` or `payments` (label `upstream`): connection refused,\ntimeout (2 s) or a non-200 answer. It points directly at the dependency to investigate.\n## Fix\nFix the upstream service ([service-down.md](service-down.md)). Restarting `orders` does\n**not** help: it is the messenger, not the cause.",
+        "services": []
+      },
+      {
+        "id": "E9",
+        "kind": "runbook",
+        "title": "high-error-rate.md (for HighErrorRate)",
+        "body": "## What it means\nThe service is up but failing requests. In this shop it is almost always a **symptom**:\n`orders` returns 503 when `catalog` or `payments` cannot answer.\n## Fix\n- Dependency down → fix the dependency first ([service-down.md](service-down.md)); this alert\n  clears by itself about 2 minutes later (rate window).\n- Started right after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database errors → check `kubectl -n shop get pods -l app.kubernetes.io/name=postgres`.",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

@@ -17,6 +17,7 @@ from centinela.incidents.models import (
     OpenIncident,
     severity_rank,
 )
+from centinela.incidents.tracker import RecentIncident
 
 log = logging.getLogger("centinela.store")
 
@@ -109,6 +110,8 @@ class IncidentStore(Protocol):
     def attach(self, incident_id: int, alert: Alert, seen_at: datetime) -> None: ...
     def resolve_alert(self, incident_id: int, fingerprint: str, at: datetime) -> None: ...
     def resolve_incident(self, incident_id: int, at: datetime) -> None: ...
+    def reopen(self, incident_id: int, at: datetime, reason: str) -> None: ...
+    def recently_resolved(self, since: datetime) -> list[RecentIncident]: ...
     def add_event(
         self, incident_id: int, kind: str, payload: dict[str, Any], at: datetime
     ) -> None: ...
@@ -297,6 +300,25 @@ class PostgresIncidentStore:
             )
         self.add_event(incident_id, "incident_resolved", {}, at)
 
+    def reopen(self, incident_id: int, at: datetime, reason: str) -> None:
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                "UPDATE incidents SET status = 'open', resolved_at = NULL "
+                "WHERE id = %s AND status = 'resolved' RETURNING id",
+                (incident_id,),
+            ).fetchone()
+        if row:
+            self.add_event(incident_id, "incident_reopened", {"reason": reason}, at)
+
+    def recently_resolved(self, since: datetime) -> list[RecentIncident]:
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT id, started_at, resolved_at FROM incidents "
+                "WHERE status = 'resolved' AND resolved_at >= %s ORDER BY resolved_at",
+                (since,),
+            ).fetchall()
+        return [RecentIncident(r["id"], r["started_at"], r["resolved_at"]) for r in rows]
+
     def add_event(self, incident_id: int, kind: str, payload: dict[str, Any], at: datetime) -> None:
         with self.pool.connection() as conn:
             conn.execute(
@@ -439,6 +461,21 @@ class InMemoryIncidentStore:
         row = self.rows[incident_id]
         row.incident = replace(row.incident, status="resolved", resolved_at=at)
         self.add_event(incident_id, "incident_resolved", {}, at)
+
+    def reopen(self, incident_id: int, at: datetime, reason: str) -> None:
+        row = self.rows[incident_id]
+        if row.incident.status == "resolved":
+            row.incident = replace(row.incident, status="open", resolved_at=None)
+            self.add_event(incident_id, "incident_reopened", {"reason": reason}, at)
+
+    def recently_resolved(self, since: datetime) -> list[RecentIncident]:
+        return [
+            RecentIncident(r.incident.id, r.incident.started_at, r.incident.resolved_at)
+            for r in self.rows.values()
+            if r.incident.status == "resolved"
+            and r.incident.resolved_at is not None
+            and r.incident.resolved_at >= since
+        ]
 
     def add_event(self, incident_id: int, kind: str, payload: dict[str, Any], at: datetime) -> None:
         self.rows[incident_id].events.append({"at": at, "kind": kind, "payload": payload})

@@ -1,0 +1,173 @@
+{
+  "name": "chaos-orders-memory-leak",
+  "source": "chaos",
+  "fault": "new orders release leaks 64 KiB per request (fix: rollback; a restart buys time)",
+  "expected": {
+    "root_cause": [
+      "orders"
+    ],
+    "category": [
+      "resource_exhaustion"
+    ],
+    "actions": [
+      "restart:orders",
+      "none"
+    ]
+  },
+  "evidence": {
+    "items": [
+      {
+        "id": "E1",
+        "body": "orders uses too much memory. Active since 16:56:09 UTC, still firing.",
+        "kind": "alert",
+        "title": "HighMemoryUsage (warning) instance=10.42.0.218:8000, job=shop, namespace=shop, pod=orders-58b9c4c6dd-2hqhb, service=orders",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     3.7     -     5ms    73MiB\norders       1     1.8     -    24ms   122MiB\npayments     1     1.5     -     5ms    67MiB",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "body": "orders -> catalog/payments: no failed calls",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "body": "deployment catalog: 1/1\ndeployment loadgen: 1/1\ndeployment orders: 1/1  <- NEW ROLLOUT (revision 19, 16:51:29 UTC, 5 min before the first alert)\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E5",
+        "body": "Unhealthy orders-58b9c4c6dd-2hqhb x1: Startup probe failed: Get \"http://10.42.0.218:8000/healthz\": dial tcp 10.42.0.218:8000: connect: connection refused",
+        "kind": "k8s_events",
+        "title": "Kubernetes warning events (untrusted text)",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E6",
+        "body": "## What it means\nThe process resident memory (RSS) is close to the container limit. If it keeps growing\nit will be **OOMKilled** and restarted, which then fires `ServiceDown`.\n## Fix\n- Leak after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Immediate relief → `kubectl -n shop rollout restart deploy/<svc>` (buys time, does not fix a leak).\n- Limit too tight for normal load → raise `resources.limits.memory` within the namespace quota.",
+        "kind": "runbook",
+        "title": "high-memory.md (for HighMemoryUsage)",
+        "services": []
+      }
+    ],
+    "notes": [],
+    "alerts": [
+      {
+        "name": "HighMemoryUsage",
+        "labels": {
+          "job": "shop",
+          "pod": "orders-58b9c4c6dd-2hqhb",
+          "service": "orders",
+          "instance": "10.42.0.218:8000",
+          "severity": "warning",
+          "alertname": "HighMemoryUsage",
+          "namespace": "shop"
+        },
+        "summary": "orders uses too much memory",
+        "severity": "warning",
+        "active_at": "2026-11-10T16:56:09.119218+00:00",
+        "resolved_at": null
+      }
+    ],
+    "version": 1,
+    "incident": {
+      "id": 19,
+      "title": "orders uses too much memory",
+      "status": "open",
+      "service": "orders",
+      "category": "HighMemoryUsage",
+      "severity": "warning",
+      "resolution": null,
+      "root_cause": null,
+      "started_at": "2026-11-10T16:56:09.119218+00:00",
+      "detected_at": "2026-11-10T16:58:28.697760+00:00",
+      "resolved_at": null
+    },
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "ready": 1,
+        "desired": 1,
+        "revision": "18",
+        "rollout_at": "2026-11-10T16:40:52+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "loadgen",
+        "ready": 1,
+        "desired": 1,
+        "revision": "15",
+        "rollout_at": "2026-11-10T15:16:01+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "ready": 1,
+        "desired": 1,
+        "revision": "19",
+        "rollout_at": "2026-11-10T16:51:29+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "ready": 1,
+        "desired": 1,
+        "revision": "18",
+        "rollout_at": "2026-11-10T16:21:25+00:00"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "ready": 1,
+        "desired": 1,
+        "revision": null,
+        "rollout_at": null
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "ready": 1,
+        "desired": 1,
+        "revision": "1",
+        "rollout_at": "2026-11-09T16:05:50+00:00"
+      }
+    ],
+    "observed_at": "2026-11-10T16:59:28.697760+00:00",
+    "quarantined": []
+  },
+  "live": {
+    "incident_id": 19,
+    "title": "orders uses too much memory",
+    "mttd_seconds": 139.6,
+    "detected_to_diagnosis_seconds": 66.0,
+    "model": "qwen3:8b",
+    "model_seconds": 4.06,
+    "root_cause": "orders",
+    "category": "high_latency",
+    "action": "rollback:orders",
+    "valid": true,
+    "baseline": "orders",
+    "proposals": [],
+    "summary": "The new rollout of the orders service likely caused a memory leak, leading to high memory usage and startup probe failures."
+  }
+}

@@ -1,0 +1,268 @@
+{
+  "name": "chaos-payments-bad-release",
+  "source": "chaos",
+  "fault": "new payments release fails 50% of requests (fix: rollback)",
+  "expected": {
+    "root_cause": [
+      "payments"
+    ],
+    "category": [
+      "error_spike",
+      "dependency_failure"
+    ],
+    "actions": [
+      "none"
+    ]
+  },
+  "evidence": {
+    "items": [
+      {
+        "id": "E1",
+        "body": "orders returns too many 5xx errors. Active since 16:18:09 UTC, still firing.",
+        "kind": "alert",
+        "title": "HighErrorRate (critical) service=orders",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "body": "payments returns too many 5xx errors. Active since 16:18:09 UTC, still firing.",
+        "kind": "alert",
+        "title": "HighErrorRate (critical) service=payments",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "body": "orders cannot reach payments. Active since 16:18:09 UTC, still firing.",
+        "kind": "alert",
+        "title": "UpstreamErrors (warning) upstream=payments",
+        "services": [
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E4",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     3.7    0%     8ms    74MiB\norders       1     1.8   47%    47ms    70MiB\npayments     1     1.6   51%    10ms    68MiB",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E5",
+        "body": "orders -> payments: 0.86 failed calls/s",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E6",
+        "body": "deployment catalog: 1/1\ndeployment loadgen: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1  <- NEW ROLLOUT (revision 17, 16:17:39 UTC, 1 min before the first alert)\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E7",
+        "body": "Unhealthy payments-76b74b87c7-jmhz7 x1: Readiness probe failed: Get \"http://10.42.0.212:8000/readyz\": dial tcp 10.42.0.212:8000: connect: connection refused\nUnhealthy payments-59878cdc5c-74q2r x2: Startup probe failed: Get \"http://10.42.0.214:8000/healthz\": dial tcp 10.42.0.214:8000: connect: connection refused",
+        "kind": "k8s_events",
+        "title": "Kubernetes warning events (untrusted text)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E8",
+        "body": "10x error \"request\"\n10x error \"payments unavailable\" upstream=payments",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E9",
+        "body": "20x error \"request\"\n20x error \"unhandled error while processing request\"",
+        "kind": "logs",
+        "title": "payments error/warning log lines (untrusted text)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E10",
+        "body": "## What it means\nThe service is up but failing requests. In this shop it is almost always a **symptom**:\n`orders` returns 503 when `catalog` or `payments` cannot answer.\n## Fix\n- Dependency down → fix the dependency first ([service-down.md](service-down.md)); this alert\n  clears by itself about 2 minutes later (rate window).\n- Started right after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database errors → check `kubectl -n shop get pods -l app.kubernetes.io/name=postgres`.",
+        "kind": "runbook",
+        "title": "high-error-rate.md (for HighErrorRate)",
+        "services": []
+      },
+      {
+        "id": "E11",
+        "body": "## What it means\n`orders` cannot reach `catalog` or `payments` (label `upstream`): connection refused,\ntimeout (2 s) or a non-200 answer. It points directly at the dependency to investigate.\n## Fix\nFix the upstream service ([service-down.md](service-down.md)). Restarting `orders` does\n**not** help: it is the messenger, not the cause.",
+        "kind": "runbook",
+        "title": "upstream-errors.md (for UpstreamErrors)",
+        "services": []
+      },
+      {
+        "id": "E12",
+        "body": "root cause: payments scaled to 0 (drill)\nresolution: restored by hand: the approval came after the 15-minute expiry",
+        "kind": "history",
+        "title": "past incident #4: orders cannot reach payments (UpstreamErrors)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E13",
+        "body": "root cause: payments scaled to 0 replicas (drill); diagnosed automatically by the AI agent in 5 s\nresolution: scaled payments back to 1 replica, as the agent suggested",
+        "kind": "history",
+        "title": "past incident #3: orders cannot reach payments (UpstreamErrors)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E14",
+        "body": "root cause: payments scaled to 0 (drill); ServiceDown missed it because the target vanished\nresolution: scaled back to 1 replica; ServiceDown now alerts on missing targets",
+        "kind": "history",
+        "title": "past incident #1: orders cannot reach payments (UpstreamErrors)",
+        "services": [
+          "payments"
+        ]
+      }
+    ],
+    "notes": [],
+    "alerts": [
+      {
+        "name": "HighErrorRate",
+        "labels": {
+          "service": "orders",
+          "severity": "critical",
+          "alertname": "HighErrorRate"
+        },
+        "summary": "orders returns too many 5xx errors",
+        "severity": "critical",
+        "active_at": "2026-11-10T16:18:09.119218+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "HighErrorRate",
+        "labels": {
+          "service": "payments",
+          "severity": "critical",
+          "alertname": "HighErrorRate"
+        },
+        "summary": "payments returns too many 5xx errors",
+        "severity": "critical",
+        "active_at": "2026-11-10T16:18:09.119218+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "UpstreamErrors",
+        "labels": {
+          "severity": "warning",
+          "upstream": "payments",
+          "alertname": "UpstreamErrors"
+        },
+        "summary": "orders cannot reach payments",
+        "severity": "warning",
+        "active_at": "2026-11-10T16:18:09.119218+00:00",
+        "resolved_at": null
+      }
+    ],
+    "version": 1,
+    "incident": {
+      "id": 17,
+      "title": "orders cannot reach payments",
+      "status": "open",
+      "service": "payments",
+      "category": "UpstreamErrors",
+      "severity": "critical",
+      "resolution": null,
+      "root_cause": null,
+      "started_at": "2026-11-10T16:18:09.119218+00:00",
+      "detected_at": "2026-11-10T16:19:24.158742+00:00",
+      "resolved_at": null
+    },
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "loadgen",
+        "ready": 1,
+        "desired": 1,
+        "revision": "15",
+        "rollout_at": "2026-11-10T15:16:01+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "ready": 1,
+        "desired": 1,
+        "revision": "18",
+        "rollout_at": "2026-11-10T16:06:25+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "ready": 1,
+        "desired": 1,
+        "revision": "17",
+        "rollout_at": "2026-11-10T16:17:39+00:00"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "ready": 1,
+        "desired": 1,
+        "revision": null,
+        "rollout_at": null
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "ready": 1,
+        "desired": 1,
+        "revision": "1",
+        "rollout_at": "2026-11-09T16:05:50+00:00"
+      }
+    ],
+    "observed_at": "2026-11-10T16:20:24.158742+00:00",
+    "quarantined": []
+  },
+  "live": {
+    "incident_id": 17,
+    "title": "orders cannot reach payments",
+    "mttd_seconds": 75.0,
+    "detected_to_diagnosis_seconds": 91.4,
+    "model": "qwen3:8b",
+    "model_seconds": 23.58,
+    "root_cause": "payments",
+    "category": "service_down",
+    "action": "restart:payments",
+    "valid": true,
+    "baseline": "payments",
+    "proposals": [
+      "restart:payments"
+    ],
+    "summary": "Payments service is down, causing upstream errors and high error rates in orders and payments."
+  }
+}

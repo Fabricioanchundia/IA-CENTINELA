@@ -1,0 +1,185 @@
+{
+  "name": "synthetic-catalog-oomkilled",
+  "source": "synthetic",
+  "fault": "catalog is killed for exceeding its memory limit, again and again",
+  "expected": {
+    "root_cause": [
+      "catalog"
+    ],
+    "category": [
+      "resource_exhaustion"
+    ],
+    "actions": [
+      "none"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "catalog uses too much memory",
+      "category": "HighMemoryUsage",
+      "service": "catalog",
+      "severity": "critical",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "HighMemoryUsage",
+        "severity": "warning",
+        "labels": {
+          "alertname": "HighMemoryUsage",
+          "severity": "warning",
+          "job": "shop",
+          "service": "catalog"
+        },
+        "summary": "catalog uses too much memory",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "ServiceDown",
+        "severity": "critical",
+        "labels": {
+          "alertname": "ServiceDown",
+          "severity": "critical",
+          "job": "shop",
+          "service": "catalog"
+        },
+        "summary": "catalog is down",
+        "active_at": "2026-11-10T15:00:50+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "HighMemoryUsage (warning) job=shop, service=catalog",
+        "body": "catalog uses too much memory. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "alert",
+        "title": "ServiceDown (critical) job=shop, service=catalog",
+        "body": "catalog is down. Active since 15:00:50 UTC, still firing.",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog     NO SCRAPE TARGET (no running instance found)\norders       1     1.5    0%    40ms    75MiB\npayments     1     1.5    0%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E4",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E5",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 0/1  <- NOT READY\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E6",
+        "kind": "pods",
+        "title": "pods not ready or restarted (now)",
+        "body": "catalog-7c9d5f-k2x8q (catalog): Running, ready=False, restarts=3, last termination OOMKilled",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E7",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "body": "5x error \"catalog unavailable\"",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E8",
+        "kind": "runbook",
+        "title": "high-memory.md (for HighMemoryUsage)",
+        "body": "## What it means\nThe process resident memory (RSS) is close to the container limit. If it keeps growing\nit will be **OOMKilled** and restarted, which then fires `ServiceDown`.\n## Fix\n- Leak after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Immediate relief → `kubectl -n shop rollout restart deploy/<svc>` (buys time, does not fix a leak).\n- Limit too tight for normal load → raise `resources.limits.memory` within the namespace quota.",
+        "services": []
+      },
+      {
+        "id": "E9",
+        "kind": "runbook",
+        "title": "service-down.md (for ServiceDown)",
+        "body": "## What it means\nPrometheus has no healthy target for a shop service: the process is dead or unreachable\n(`up == 0`), or **no pod exists at all** (scaled to 0, deleted). In Kubernetes the second\ncase does not produce `up == 0`: the target simply disappears, so the alert also checks for\nservices seen in the last hour that have no `up` series now.\n## Fix\n- Crash loop after a deploy → roll back: `kubectl -n shop rollout undo deploy/<service>`.\n- Scaled to 0 → `kubectl -n shop scale deploy/<service> --replicas=1`.\n- Stuck pod → `kubectl -n shop rollout restart deploy/<service>`.\n- OOMKilled → see [high-memory.md](high-memory.md).",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 0,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}
