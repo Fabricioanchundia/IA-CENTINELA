@@ -1,0 +1,83 @@
+# End-to-end test (Phase 10): the whole platform on a fresh Kubernetes cluster, on every PR.
+#
+# A k3d cluster on the runner, the real images, Terraform and the manifests; then payments is
+# scaled to 0 and the test follows the whole loop until the incident is resolved through an
+# approved action. The model is a small one on CPU (no GPU here): the test checks the
+# plumbing; accuracy is measured offline with `centinela eval run` (ADR-0011).
+name: e2e
+
+on:
+  pull_request:
+    paths-ignore: ["docs/**", "**/*.md", "eval/**"]
+  push:
+    branches: [main]
+    paths-ignore: ["docs/**", "**/*.md", "eval/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: end-to-end on Kubernetes
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      K3D_VERSION: v5.9.0
+      KUBECTL_VERSION: v1.37.2
+      OLLAMA_VERSION: v0.40.16
+      E2E_MODEL: qwen3:1.7b
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Free disk space (images for the whole stack plus a model)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          enable-cache: true
+      - name: Python dependencies (MCP client used by the test)
+        run: uv sync --locked --all-packages
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: 1.17.1
+          terraform_wrapper: false
+
+      - name: Install k3d and kubectl
+        run: |
+          curl -fsSL -o k3d "https://github.com/k3d-io/k3d/releases/download/${K3D_VERSION}/k3d-linux-amd64"
+          curl -fsSL -o kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          sudo install -m 0755 k3d kubectl /usr/local/bin/ && rm k3d kubectl
+          k3d version && kubectl version --client
+
+      - name: Ollama on the runner, listening for the cluster (CPU only)
+        run: |
+          curl -fsSL https://ollama.com/install.sh | OLLAMA_VERSION="${OLLAMA_VERSION#v}" sh
+          sudo systemctl stop ollama || true
+          OLLAMA_HOST=0.0.0.0:11434 nohup ollama serve >/tmp/ollama.log 2>&1 &
+          for _ in $(seq 30); do curl -fsS localhost:11434/api/version && break; sleep 2; done
+          ollama pull "$E2E_MODEL"
+
+      - name: End-to-end test
+        run: ./scripts/e2e.sh
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -40 || true
+          for d in incident-collector centinela-agent centinela-executor; do
+            echo "::group::logs $d"; kubectl -n centinela logs "deploy/$d" --tail=80 || true; echo "::endgroup::"
+          done
+          echo "::group::ollama"; tail -40 /tmp/ollama.log || true; echo "::endgroup::"
+
+      - name: Delete the cluster
+        if: always()
+        run: k3d cluster delete centinela || true

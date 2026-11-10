@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadOnlyLookups",
+      "Effect": "Allow",
+      "Action": ["ec2:Describe*", "ec2:GetConsoleOutput"],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-2"}}
+    },
+    {
+      "Sid": "OnlyTheDrillInstanceType",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": "arn:aws:ec2:us-east-2:*:instance/*",
+      "Condition": {"StringEquals": {"ec2:InstanceType": "m7i-flex.large"}}
+    },
+    {
+      "Sid": "WhatAnInstanceNeeds",
+      "Effect": "Allow",
+      "Action": "ec2:RunInstances",
+      "Resource": [
+        "arn:aws:ec2:us-east-2::image/*",
+        "arn:aws:ec2:us-east-2:*:subnet/*",
+        "arn:aws:ec2:us-east-2:*:network-interface/*",
+        "arn:aws:ec2:us-east-2:*:security-group/*",
+        "arn:aws:ec2:us-east-2:*:volume/*"
+      ]
+    },
+    {
+      "Sid": "ManageTheDrill",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:TerminateInstances",
+        "ec2:CreateSecurityGroup",
+        "ec2:DeleteSecurityGroup",
+        "ec2:AuthorizeSecurityGroupEgress",
+        "ec2:RevokeSecurityGroupEgress",
+        "ec2:CreateTags"
+      ],
+      "Resource": "*",
+      "Condition": {"StringEquals": {"aws:RequestedRegion": "us-east-2"}}
+    }
+  ]
+}

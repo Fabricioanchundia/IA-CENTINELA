@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-10
+
+Every pull request now deploys the whole platform on a fresh Kubernetes cluster and proves it
+repairs an outage end to end; images are signed; a static public demo replays real incidents.
+
+### Added
+- `e2e` workflow and `scripts/e2e.sh`: k3d on the runner, the real images, Terraform and manifests;
+  payments scaled to 0 → incident → AI diagnosis (qwen3:1.7b on CPU) with stored evidence →
+  pending fix (agent, or MCP as fallback) → approval → executor → resolved. Summary in the job.
+- Cloud drill on AWS (`infra/aws`, `scripts/cloud-drill.sh`): one EC2 instance, no inbound ports,
+  no SSH key, no credentials, runs the same end-to-end test on k3s and terminates itself
+  (hard limit 2 h; about USD 0.30-0.50 of free-plan credit per run).
+- `images` workflow: Trivy scan on every PR; on main, images on ghcr.io with SBOM and provenance,
+  signed with Sigstore cosign (keyless).
+- `centinela site` and the `pages` workflow: a static demo page (no JavaScript, strict CSP) with the
+  recorded chaos incidents, the evaluation and the red-team results.
+- ADR-0012.
+
+
 ## [0.9.0] - 2026-11-10
 
 The agent is measured: 10 real faults in the cluster and 22 replayable cases on three model

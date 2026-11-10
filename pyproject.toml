@@ -1,6 +1,6 @@
 [project]
 name = "centinela"
-version = "0.9.0"
+version = "0.10.0"
 description = "AI SRE agent that detects, diagnoses and safely fixes incidents in a microservices app."
 readme = "README.md"
 license = "MIT"
@@ -50,6 +50,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "N"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/tests/**" = ["S101", "S311"]  # assert and seeded random are fine in tests
+"src/centinela/site.py" = ["E501"]  # an HTML template: long lines are the markup
 
 [tool.mypy]
 python_version = "3.12"

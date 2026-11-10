@@ -6,7 +6,7 @@ from centinela.cli import main
 
 def test_main_returns_zero(capsys: pytest.CaptureFixture[str]) -> None:
     assert main([]) == 0
-    assert "phase 9" in capsys.readouterr().out
+    assert "phase 10" in capsys.readouterr().out
 
 
 def test_version_flag(capsys: pytest.CaptureFixture[str]) -> None:
