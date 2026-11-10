@@ -67,6 +67,7 @@ resource "kubernetes_secret_v1" "incidents_db" {
     PGPASSWORD                   = random_password.incidents_db.result
     PGDATABASE                   = "centinela"
     INCIDENTS_DB_READER_PASSWORD = random_password.incidents_reader.result
+    CONSOLE_DB_PASSWORD          = random_password.console_db.result # migrate sets the role
   }
 }
 
@@ -78,5 +79,40 @@ resource "kubernetes_secret_v1" "incidents_reader" {
 
   data = {
     INCIDENTS_DB_READER_PASSWORD = random_password.incidents_reader.result
+  }
+}
+
+# ---------------------------------------------------------------------------------------
+# Approval console (Phase 7b): login password, session signing key, and its own database
+# role that can only record decisions (src/centinela/incidents/store.py, CONSOLE_ROLE).
+# ---------------------------------------------------------------------------------------
+resource "random_password" "console_login" {
+  length  = 24
+  special = false
+}
+
+resource "random_password" "console_session_key" {
+  length  = 64
+  special = false
+}
+
+resource "random_password" "console_db" {
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_secret_v1" "console" {
+  metadata {
+    name      = "console-credentials"
+    namespace = kubernetes_namespace_v1.this["centinela"].metadata[0].name
+  }
+
+  data = {
+    CONSOLE_USER       = var.console_user
+    CONSOLE_PASSWORD   = random_password.console_login.result
+    CONSOLE_SECRET_KEY = random_password.console_session_key.result
+    PGUSER             = "centinela_console"
+    PGPASSWORD         = random_password.console_db.result
+    PGDATABASE         = "centinela"
   }
 }

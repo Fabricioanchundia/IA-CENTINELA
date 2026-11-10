@@ -1,0 +1,26 @@
+:root{--bg:#f6f7f9;--card:#fff;--ink:#16191d;--muted:#5d6670;--line:#dde1e6;--ok:#0f7b3f;
+--warn:#a35a00;--bad:#b42318;--accent:#2457c5}
+@media (prefers-color-scheme:dark){:root{--bg:#111418;--card:#1a1e24;--ink:#e8eaed;--muted:#9aa3ad;
+--line:#2c323a;--ok:#4cc38a;--warn:#f0a43a;--bad:#ff6b5e;--accent:#7aa2ff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);
+font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 24px;
+border-bottom:1px solid var(--line);background:var(--card)}
+header h1{font-size:17px;margin:0}main{max-width:980px;margin:0 auto;padding:20px 16px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:28px 0 10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:12px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}.grow{flex:1 1 320px}
+.muted{color:var(--muted)}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.big{font-size:18px;font-weight:600}code{font-size:13px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top;font-size:14px}
+th{color:var(--muted);font-weight:600}
+form.inline{display:inline}textarea,input{width:100%;padding:8px;border:1px solid var(--line);
+border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+button{padding:8px 16px;border-radius:6px;border:1px solid var(--line);background:var(--card);
+color:var(--ink);font:inherit;cursor:pointer}
+button.approve{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:600}
+button.reject{border-color:var(--bad);color:var(--bad)}
+.flash{padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);margin-bottom:12px}
+.login{max-width:360px;margin:12vh auto}.login label{display:block;margin:10px 0 4px}
+.login button{width:100%;margin-top:16px}

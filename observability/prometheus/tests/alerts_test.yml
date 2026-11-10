@@ -95,3 +95,24 @@ tests:
       - eval_time: 6m
         alertname: ServiceDown
         exp_alerts: []
+
+  - name: a few errors during a rollout do not page, a failing dependency does
+    interval: 15s
+    input_series:
+      # 5 failed calls in one scrape (a rollout blip), then nothing
+      - series: 'shop_upstream_errors_total{job="shop", service="orders", upstream="catalog"}'
+        values: "0 0 5x20"
+      # payments down: ~1.5 failed calls per second
+      - series: 'shop_upstream_errors_total{job="shop", service="orders", upstream="payments"}'
+        values: "0+22x20"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: UpstreamErrors
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              upstream: payments
+            exp_annotations:
+              summary: "orders cannot reach payments"
+              description: "orders is failing calls to payments (1.47 errors/s)."
+              runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/upstream-errors.md"

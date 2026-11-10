@@ -178,6 +178,8 @@ kubectl -n centinela exec deploy/incident-collector -c collector -- centinela re
 | Re-check and verify | policy checked again before acting; `executed` only when the replicas are ready again |
 | Audit trail | every step in the incident timeline and in Grafana; `EXECUTOR_DRY_RUN` kill switch |
 
+**Approve from the browser:** `./scripts/k8s.sh console` opens the approval console on http://localhost:8400 (password: `terraform -chdir=infra/terraform output -raw console_password`). It has no Kubernetes rights, its own database role that can only record decisions, signed sessions, CSRF tokens, login lockout and a no-JavaScript Content-Security-Policy.
+
 `./scripts/incident-drill.sh` asks you to approve the agent's proposal in the terminal. First approved fix: **15 s from "approve" to payments healthy again** (`0/0 -> 1/1 ready after 9 s`). Design notes: [ADR-0008](docs/adr/0008-human-approved-actions.md).
 
 ## Quick start (development)
