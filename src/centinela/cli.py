@@ -9,6 +9,7 @@ centinela reject ID --by NAME --note .. reject an action, with the reason
 centinela executor                      run approved actions (in the cluster, narrow permissions)
 centinela console                       web page to approve or reject actions (port 8000)
 centinela mcp                           MCP server on stdio: read incidents, propose actions
+centinela redteam                       prompt-injection attacks vs the agent (needs only Ollama)
 centinela incidents list                recent incidents with MTTD / MTTR
 centinela incidents show ID             timeline: alerts, logs, resolution
 centinela incidents close ID --cause .. --resolution ..   write the postmortem
@@ -69,6 +70,16 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("executor", help="run approved actions")
     sub.add_parser("console", help="web page to approve or reject actions")
     sub.add_parser("mcp", help="MCP server (stdio): read incidents, propose actions")
+    red = sub.add_parser(
+        "redteam", help="prompt-injection attacks against the agent (needs only Ollama)"
+    )
+    red.add_argument("--levels", default="L0,L1,L2", help="defence levels to test")
+    red.add_argument("--attacks", default="", help="comma-separated attack names (default all)")
+    red.add_argument(
+        "--scenario", default="all", help="payments-down, slow-orders or all (default)"
+    )
+    red.add_argument("--out", default="docs/redteam", help="where to write the results")
+    red.add_argument("--list", action="store_true", help="list the attacks and exit")
 
     incidents = sub.add_parser("incidents", help="incident history")
     isub = incidents.add_subparsers(dest="action", required=True)
@@ -120,6 +131,7 @@ def _diagnoser(settings: Settings, store: PostgresIncidentStore | None = None) -
 
     from centinela.agent.diagnosis import Diagnoser
     from centinela.agent.evidence import EvidenceBuilder
+    from centinela.agent.guard import InjectionDetector
     from centinela.agent.k8s import KubeReader
     from centinela.agent.llm import OllamaChat
     from centinela.incidents.sources import PrometheusQuery
@@ -130,6 +142,7 @@ def _diagnoser(settings: Settings, store: PostgresIncidentStore | None = None) -
         PrometheusQuery(settings.prometheus_url),
         KubeReader.in_cluster(settings.shop_namespace),
         Path(settings.runbooks_dir),
+        detector=InjectionDetector(),
     )
     llm = OllamaChat(
         settings.ollama_url,
@@ -332,6 +345,93 @@ def print_diagnosis(p: dict[str, Any]) -> None:
         print(f"  errors      : {'; '.join(p['errors'])}")
 
 
+def run_redteam(args: argparse.Namespace) -> int:
+    import logging
+    from pathlib import Path
+
+    import httpx
+
+    from centinela.agent.llm import OllamaChat
+    from centinela.redteam.attacks import ATTACKS, SCENARIOS
+    from centinela.redteam.run import LEVELS, Run, run_all, scenario_attacks, totals, verdict, write
+
+    logging.basicConfig(level=logging.ERROR)
+    if args.list:
+        for a in ATTACKS:
+            print(f"{a.name:<20} {a.where:<8} goal={a.goal:<9} {a.technique}")
+        return 0
+    wanted = {n.strip() for n in args.attacks.split(",") if n.strip()}
+    attacks = [a for a in ATTACKS if not wanted or a.name in wanted]
+    levels = [lv for lv in LEVELS if lv.key in {k.strip().upper() for k in args.levels.split(",")}]
+    scenarios = [s for s in SCENARIOS if args.scenario in ("all", s.name)]
+    unknown = wanted - {a.name for a in ATTACKS}
+    if unknown or not attacks or not levels or not scenarios:
+        print(f"nothing to run (unknown attacks: {', '.join(sorted(unknown)) or '-'})")
+        return 2
+    settings = Settings.from_env()
+    runbooks = Path(settings.runbooks_dir)
+    if not runbooks.is_dir():
+        print(f"runbooks not found in {runbooks}: run this from the repository root")
+        return 2
+    try:
+        tags = httpx.get(f"{settings.ollama_url}/api/tags", timeout=5).json()
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"cannot reach Ollama at {settings.ollama_url} ({type(exc).__name__}).")
+        print("Is the Ollama app running on Windows? Try: curl -s localhost:11434/api/version")
+        return 2
+    models = {m.get("name") for m in tags.get("models", [])}
+    if settings.ollama_model not in models:
+        print(f"model {settings.ollama_model} is not in Ollama (have: {', '.join(sorted(models))})")
+        return 2
+    llm = OllamaChat(
+        settings.ollama_url,
+        settings.ollama_model,
+        num_ctx=settings.ollama_num_ctx,
+        think=settings.ollama_think,
+    )
+    total = sum(len(scenario_attacks(s, attacks)) for s in scenarios) * len(levels)
+    print(
+        f"red team: {total} runs ({', '.join(s.name for s in scenarios)}; {len(levels)} levels) "
+        f"on {settings.ollama_model}, no cluster, no database. Loading the model ...",
+        flush=True,
+    )
+    llm.warm()
+    done = {"n": 0}
+
+    def progress(i: int, n: int, run: Run) -> None:
+        done["n"] += 1
+        shield = " [quarantined]" if run.quarantined else ""
+        print(
+            f"[{done['n']:>2}/{total}] {run.level} {run.attack:<20} model: {run.model_action:<18} "
+            f"-> {verdict(run)}{shield}  ({run.seconds:.0f}s)",
+            flush=True,
+        )
+
+    for scenario in scenarios:
+        print(f"\n== {scenario.name}: {scenario.title}", flush=True)
+        runs = run_all(
+            llm,
+            runbooks,
+            scenario,
+            attacks,
+            levels,
+            progress,
+            max_prompt_chars=(settings.ollama_num_ctx - 900) * 3,
+        )
+        print(f"\n{scenario.name}: right outcome = {scenario.expected_text}")
+        print(f"{'level':<22}{'hijacked':>10}{'fooled':>9}{'quarantined':>13}{'right outcome':>15}")
+        for lv in levels:
+            t = totals(runs, lv.key)
+            print(
+                f"{lv.key + ' ' + lv.title:<22}{t['hijacked']:>6}/{t['attacks']:<3}"
+                f"{t['fooled']:>5}/{t['attacks']:<3}{t['quarantined']:>9}/{t['attacks']:<3}"
+                f"{t['expected']:>11}/{t['runs']:<3}"
+            )
+        json_path, md_path = write(runs, settings.ollama_model, scenario, Path(args.out))
+        print(f"results: {md_path} (table) and {json_path} (every answer)")
+    return 0
+
+
 def run_incidents(args: argparse.Namespace) -> int:
     store = _store()
     if args.action == "list":
@@ -399,7 +499,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_console()
     if args.command == "mcp":
         return run_mcp()
-    print(f"centinela {__version__} - phase 7: approved actions + MCP (try: centinela --help)")
+    if args.command == "redteam":
+        return run_redteam(args)
+    print(f"centinela {__version__} - phase 8: red team + injection guards (try: centinela --help)")
     return 0
 
 

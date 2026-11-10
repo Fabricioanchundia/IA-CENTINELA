@@ -129,6 +129,9 @@ def build_server(
                 "valid": d["valid"],
                 "agrees_with_baseline_rule": d["agrees_with_baseline"],
                 "model": d["model"],
+                # Phase 8: untrusted texts removed from the model's prompt as possible injection
+                "injection_suspected": d.get("injection_suspected", 0),
+                "components_with_trusted_signals": d.get("trusted_signals"),
             }
         related = [_action(a) for a in actions.recent(50) if a.incident_id == incident_id]
         return {
@@ -163,6 +166,15 @@ def build_server(
             raise ToolError(f"incident {incident_id} does not exist")
         if incident.status != "open":
             raise ToolError(f"incident {incident_id} is already {incident.status}: nothing to fix")
+        # Same guard as the agent (Phase 8): an MCP client may have read injected log text.
+        # Only act on a component that alerts, measured failures or Kubernetes state point at.
+        reports = [e["payload"] for e in incidents.events(incident_id) if e["kind"] == "diagnosis"]
+        signals = reports[-1].get("trusted_signals") if reports else None
+        if signals is not None and proposal.target not in signals:
+            raise ToolError(
+                f"no alert, measured failure or Kubernetes state points at {proposal.target} "
+                f"(trusted signals: {', '.join(signals) or 'none'}); text alone is not enough"
+            )
         action = actions.propose(incident_id, proposal, reason, f"mcp:{client}", clock())
         if action is None:
             raise ToolError(

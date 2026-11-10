@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-10
+
+The agent is attacked with prompt injection on purpose, and guards in code stop what the prompt
+alone did not.
+
+### Added
+- `centinela redteam`: 13 prompt-injection attacks (logs, Kubernetes events, postmortems) in two
+  incidents, against a naive agent, the v0.7 agent and the v0.8 agent, on the local model. Writes
+  `docs/redteam/results-<model>-<incident>.{md,json}`. Needs only Ollama.
+- Injection detector (`agent/guard.py`): Unicode normalisation, spaced letters, English and
+  Spanish override phrases, fake role turns, chat-template tokens, the `<evidence>` delimiter,
+  schema field names, fake evidence ids. Suspicious text is quarantined before the prompt.
+- Proposal guards: an action needs a trusted signal (alert, measured failure, Kubernetes state)
+  on its target; after a quarantine the baseline must agree. The MCP `propose_action` tool applies
+  the trusted-signal rule too.
+- Warnings for the human: in the proposal reason, in the approval console (red banner) and in the
+  MCP `get_incident` response. Metrics `centinela_injection_suspected_total` and
+  `centinela_proposals_blocked_total{guard}`.
+- ADR-0010 with the measured results: on thin evidence the v0.7 agent let 3 of 11 attacks reach
+  the human; the v0.8 agent let none.
+
+
 ## [0.7.0] - 2026-11-10
 
 The agent can now fix things, only with a human's approval: from the terminal, a web console or
