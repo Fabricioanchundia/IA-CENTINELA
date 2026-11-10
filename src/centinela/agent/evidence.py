@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from centinela.agent.guard import Finding, InjectionDetector, placeholder
 from centinela.agent.k8s import KubeEvent, KubeReader, PodState, Workload
 from centinela.incidents.models import Incident, IncidentAlert
 from centinela.incidents.store import IncidentStore
@@ -95,6 +96,7 @@ class Evidence:
     items: list[Item] = field(default_factory=list)
     workloads: list[Workload] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
+    quarantined: list[Finding] = field(default_factory=list)  # Phase 8: suspected injections
 
     def add(self, kind: str, title: str, body: str, services: set[str] | None = None) -> None:
         self.items.append(
@@ -158,12 +160,27 @@ class EvidenceBuilder:
         kube: KubeReader | None,
         runbooks_dir: Path,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        detector: InjectionDetector | None = None,
+        sanitize: bool = True,
     ) -> None:
         self.store = store
         self.metrics = metrics
         self.kube = kube
         self.runbooks_dir = runbooks_dir
         self.clock = clock
+        self.detector = detector  # None: no quarantine (Phase 7 behaviour)
+        self.sanitize = sanitize  # False only for the red-team "naive agent" baseline
+
+    def _text(self, ev: Evidence, text: object, where: str, limit: int = UNTRUSTED_CHARS) -> str:
+        """Every piece of free text from the system goes through here."""
+        raw = str(text)
+        if self.detector is not None:
+            rules = self.detector.rules(raw)
+            if rules:
+                finding = Finding(where, rules, len(raw))
+                ev.quarantined.append(finding)
+                return placeholder(finding)
+        return untrusted(raw, limit) if self.sanitize else raw
 
     def build(self, incident: Incident) -> Evidence:
         now = self.clock()
@@ -179,6 +196,11 @@ class EvidenceBuilder:
         self._logs(ev)
         self._runbooks(ev)
         self._history(ev)
+        if ev.quarantined:
+            ev.notes.append(
+                f"{len(ev.quarantined)} untrusted text(s) looked like instructions to an AI and "
+                "were removed (possible prompt injection): treat this incident with extra care"
+            )
         return ev
 
     @staticmethod
@@ -285,7 +307,10 @@ class EvidenceBuilder:
             ev.add(
                 "k8s_events",
                 "Kubernetes warning events (untrusted text)",
-                "\n".join(_event_line(e) for e in events),
+                "\n".join(
+                    _event_line(e, self._text(ev, e.message, f"k8s_event {e.object}"))
+                    for e in events
+                ),
                 {s for s in COMPONENTS for e in events if e.object.startswith(s)},
             )
 
@@ -300,7 +325,8 @@ class EvidenceBuilder:
             for line in payload.get("lines", []):
                 service = str(line.get("service") or payload.get("service") or "?")
                 extra = f" upstream={line['upstream']}" if line.get("upstream") else ""
-                key = f'{line.get("level", "?")} "{untrusted(line.get("msg", ""))}"{extra}'
+                msg = self._text(ev, line.get("msg", ""), f"logs {service}")
+                key = f'{line.get("level", "?")} "{msg}"{extra}'
                 per_service.setdefault(service, Counter())[key] += 1
         for service, counts in sorted(per_service.items()):
             body = "\n".join(f"{n}x {msg}" for msg, n in counts.most_common(5))
@@ -324,8 +350,8 @@ class EvidenceBuilder:
             ev.add(
                 "history",
                 f"past incident #{past.id}: {past.title} ({past.category})",
-                f"root cause: {untrusted(past.root_cause, 200)}\n"
-                f"resolution: {untrusted(past.resolution, 200)}",
+                f"root cause: {self._text(ev, past.root_cause, f'history #{past.id}', 200)}\n"
+                f"resolution: {self._text(ev, past.resolution, f'history #{past.id}', 200)}",
                 {past.service} if past.service else set(),
             )
 
@@ -344,8 +370,8 @@ def _pod_line(p: PodState) -> str:
     return f"{p.name} ({p.app}): {p.phase}, ready={p.ready}, restarts={p.restarts}{last}"
 
 
-def _event_line(e: KubeEvent) -> str:
-    return f"{e.reason} {e.object} x{e.count}: {untrusted(e.message)}"
+def _event_line(e: KubeEvent, message: str) -> str:
+    return f"{e.reason} {e.object} x{e.count}: {message}"
 
 
 def _runbook_excerpt(text: str) -> str:

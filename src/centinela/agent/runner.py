@@ -16,7 +16,7 @@ from types import FrameType
 
 from prometheus_client import Counter, Histogram
 
-from centinela.actions.policy import KINDS, PolicyError, check
+from centinela.actions.policy import KINDS, PolicyError, Proposal, check
 from centinela.actions.store import ActionStore
 from centinela.agent.diagnosis import Diagnoser, Report
 from centinela.incidents.store import IncidentStore
@@ -33,6 +33,41 @@ DIAGNOSIS_SECONDS = Histogram(
 )
 LLM_TOKENS = Counter("centinela_llm_tokens_total", "Tokens processed by the model.", ["kind"])
 PROPOSALS = Counter("centinela_action_proposals_total", "Actions proposed to a human.", ["kind"])
+INJECTIONS = Counter(
+    "centinela_injection_suspected_total",
+    "Untrusted texts quarantined as possible prompt injection.",
+)
+BLOCKED = Counter(
+    "centinela_proposals_blocked_total", "Proposals withheld by the Phase 8 guards.", ["guard"]
+)
+
+
+def proposal_for(report: Report, guarded: bool = True) -> tuple[Proposal | None, str]:
+    """Would this diagnosis become a pending action? (None, why not) when it should not.
+
+    guarded=False is the Phase 7 behaviour, kept so the red team can measure the difference.
+    """
+    d = report.diagnosis
+    if not report.valid:
+        return None, "diagnosis not valid"
+    if d.recommended_action not in KINDS:
+        return None, f"model recommends {d.recommended_action}"
+    try:
+        proposal = check(d.recommended_action, d.action_target)
+    except PolicyError as exc:
+        return None, f"policy: {exc}"
+    if guarded:
+        if d.action_target not in report.trusted_signals:
+            # Only free text (a log line, an event message, a postmortem) points there.
+            return None, (
+                f"guard: no alert, measured failure or Kubernetes state points at {d.action_target}"
+            )
+        if report.injection_suspected and not report.agrees_with_baseline:
+            return None, (
+                "guard: possible prompt injection quarantined and the baseline rule blames "
+                f"{report.baseline_service}"
+            )
+    return proposal, "ok"
 
 
 class AgentLoop:
@@ -104,8 +139,22 @@ class AgentLoop:
 
     def propose(self, report: Report) -> None:
         """Turn a trustworthy diagnosis into a PENDING action. A human still has to approve."""
-        d = report.diagnosis
-        if self.actions is None or not report.valid or d.recommended_action not in KINDS:
+        if report.injection_suspected:
+            INJECTIONS.inc(report.injection_suspected)
+            log.warning(
+                "possible prompt injection quarantined",
+                extra={"fields": {"incident_id": report.incident_id, "where": report.quarantined}},
+            )
+        if self.actions is None:
+            return
+        proposal, why = proposal_for(report)
+        if proposal is None:
+            if why.startswith("guard:"):
+                BLOCKED.labels("trusted_signal" if "points at" in why else "injection").inc()
+            log.info(
+                "action not proposed",
+                extra={"fields": {"incident_id": report.incident_id, "reason": why}},
+            )
             return
         # The model may take a while: if the incident resolved meanwhile, there is nothing
         # to fix any more (incident 8 got a proposal 2.5 minutes after it had resolved).
@@ -116,16 +165,17 @@ class AgentLoop:
                 extra={"fields": {"incident_id": report.incident_id}},
             )
             return
-        try:
-            proposal = check(d.recommended_action, d.action_target)
-        except PolicyError as exc:
-            log.info("action not proposed", extra={"fields": {"reason": str(exc)}})
-            return
+        d = report.diagnosis
         second_opinion = (
             "baseline rule agrees"
             if report.agrees_with_baseline
             else f"WARNING: baseline rule blames {report.baseline_service}"
         )
+        if report.injection_suspected:
+            second_opinion += (
+                f"; WARNING: {report.injection_suspected} untrusted text(s) quarantined as "
+                "possible prompt injection"
+            )
         reason = f"{d.summary} (confidence {d.confidence:.2f}, {second_opinion})"
         action = self.actions.propose(
             report.incident_id, proposal, reason[:500], "centinela-agent", self.clock()

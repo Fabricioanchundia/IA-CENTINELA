@@ -1,6 +1,6 @@
 [project]
 name = "centinela"
-version = "0.7.0"
+version = "0.8.0"
 description = "AI SRE agent that detects, diagnoses and safely fixes incidents in a microservices app."
 readme = "README.md"
 license = "MIT"

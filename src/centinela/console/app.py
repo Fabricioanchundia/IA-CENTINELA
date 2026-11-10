@@ -267,6 +267,13 @@ def _action_card(action: Action, incidents: IncidentStore, csrf: str, now: datet
             f"{float(d.get('confidence', 0)):.2f} · {agree} · model {e(report.get('model'))}, "
             f"{e(report.get('seconds'))} s</span></p>"
         )
+        suspected = int(report.get("injection_suspected") or 0)
+        if suspected:
+            diag += (
+                f'<p class="bad"><b>Possible prompt injection:</b> {suspected} untrusted '
+                "text(s) from logs or events looked like instructions to the AI and were "
+                "removed from its input. Check the evidence yourself before approving.</p>"
+            )
     title = e(incident.title) if incident else f"incident {action.incident_id}"
     hidden = f'<input type="hidden" name="csrf" value="{e(csrf)}">'
     return (
