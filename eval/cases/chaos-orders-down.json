@@ -1,0 +1,208 @@
+{
+  "name": "chaos-orders-down",
+  "source": "chaos",
+  "fault": "orders Deployment scaled to 0 replicas",
+  "expected": {
+    "root_cause": [
+      "orders"
+    ],
+    "category": [
+      "service_down"
+    ],
+    "actions": [
+      "scale_up:orders"
+    ]
+  },
+  "evidence": {
+    "items": [
+      {
+        "id": "E1",
+        "body": "orders is down. Active since 15:40:09 UTC, still firing.",
+        "kind": "alert",
+        "title": "ServiceDown (critical) job=shop, service=orders",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     0.3     -    10ms    74MiB\norders      NO SCRAPE TARGET (no running instance found)\npayments     1     0.0     -    21ms    68MiB",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "body": "orders -> catalog/payments: no failed calls",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "body": "deployment catalog: 1/1\ndeployment loadgen: 1/1\ndeployment orders: 0/0  <- SCALED TO ZERO\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E5",
+        "body": "redis-5c7d65f599-vbfld (redis): Running, ready=True, restarts=1, last termination Unknown",
+        "kind": "pods",
+        "title": "pods not ready or restarted (now)",
+        "services": [
+          "redis"
+        ]
+      },
+      {
+        "id": "E6",
+        "body": "Unhealthy orders-7d4479bd-44f95 x1: Readiness probe failed: Get \"http://10.42.0.201:8000/readyz\": dial tcp 10.42.0.201:8000: connect: connection refused\nUnhealthy catalog-6d666f4fb5-fg2qb x2: Startup probe failed: Get \"http://10.42.0.208:8000/healthz\": dial tcp 10.42.0.208:8000: connect: connection refused",
+        "kind": "k8s_events",
+        "title": "Kubernetes warning events (untrusted text)",
+        "services": [
+          "catalog",
+          "orders"
+        ]
+      },
+      {
+        "id": "E7",
+        "body": "## What it means\nPrometheus has no healthy target for a shop service: the process is dead or unreachable\n(`up == 0`), or **no pod exists at all** (scaled to 0, deleted). In Kubernetes the second\ncase does not produce `up == 0`: the target simply disappears, so the alert also checks for\nservices seen in the last hour that have no `up` series now.\n## Fix\n- Crash loop after a deploy → roll back: `kubectl -n shop rollout undo deploy/<service>`.\n- Scaled to 0 → `kubectl -n shop scale deploy/<service> --replicas=1`.\n- Stuck pod → `kubectl -n shop rollout restart deploy/<service>`.\n- OOMKilled → see [high-memory.md](high-memory.md).",
+        "kind": "runbook",
+        "title": "service-down.md (for ServiceDown)",
+        "services": []
+      },
+      {
+        "id": "E8",
+        "body": "root cause: payments scaled to 0 replicas (drill)\nresolution: AI diagnosed it in 6 s (model pre-loaded), approved by msi, executor restored 1/1 in 6 s",
+        "kind": "history",
+        "title": "past incident #10: payments is down (ServiceDown)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E9",
+        "body": "root cause: payments scaled to 0 replicas (drill)\nresolution: AI proposed scale_up, approved by fabricio in the web console, executor restored 1/1 in 9 s",
+        "kind": "history",
+        "title": "past incident #9: payments is down (ServiceDown)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E10",
+        "body": "root cause: payments scaled to 0 replicas (drill)\nresolution: AI proposed scale_up, approved by msi, executor restored 1/1 in 9 s",
+        "kind": "history",
+        "title": "past incident #7: payments is down (ServiceDown)",
+        "services": [
+          "payments"
+        ]
+      }
+    ],
+    "notes": [],
+    "alerts": [
+      {
+        "name": "ServiceDown",
+        "labels": {
+          "job": "shop",
+          "service": "orders",
+          "severity": "critical",
+          "alertname": "ServiceDown"
+        },
+        "summary": "orders is down",
+        "severity": "critical",
+        "active_at": "2026-11-10T15:40:09.119218+00:00",
+        "resolved_at": null
+      }
+    ],
+    "version": 1,
+    "incident": {
+      "id": 13,
+      "title": "orders is down",
+      "status": "open",
+      "service": "orders",
+      "category": "ServiceDown",
+      "severity": "critical",
+      "resolution": null,
+      "root_cause": null,
+      "started_at": "2026-11-10T15:40:09.119218+00:00",
+      "detected_at": "2026-11-10T15:41:25.416809+00:00",
+      "resolved_at": null
+    },
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "loadgen",
+        "ready": 1,
+        "desired": 1,
+        "revision": "15",
+        "rollout_at": "2026-11-10T15:16:01+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "ready": 0,
+        "desired": 0,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "ready": 1,
+        "desired": 1,
+        "revision": null,
+        "rollout_at": null
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "ready": 1,
+        "desired": 1,
+        "revision": "1",
+        "rollout_at": "2026-11-09T16:05:50+00:00"
+      }
+    ],
+    "observed_at": "2026-11-10T15:42:25.416809+00:00",
+    "quarantined": []
+  },
+  "live": {
+    "incident_id": 13,
+    "title": "orders is down",
+    "mttd_seconds": 76.3,
+    "detected_to_diagnosis_seconds": 74.1,
+    "model": "qwen3:8b",
+    "model_seconds": 10.35,
+    "root_cause": "orders",
+    "category": "service_down",
+    "action": "scale_up:orders",
+    "valid": true,
+    "baseline": "orders",
+    "proposals": [
+      "scale_up:orders"
+    ],
+    "summary": "The orders service is down because it has been scaled to 0 replicas."
+  }
+}

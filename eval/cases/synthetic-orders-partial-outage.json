@@ -1,0 +1,149 @@
+{
+  "name": "synthetic-orders-partial-outage",
+  "source": "synthetic",
+  "fault": "one of two orders replicas is stuck not ready; the other serves alone and is slow",
+  "expected": {
+    "root_cause": [
+      "orders"
+    ],
+    "category": [
+      "high_latency",
+      "resource_exhaustion"
+    ],
+    "actions": [
+      "restart:orders",
+      "none"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "orders is slow",
+      "category": "HighLatencyP95",
+      "service": "orders",
+      "severity": "warning",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "HighLatencyP95",
+        "severity": "warning",
+        "labels": {
+          "alertname": "HighLatencyP95",
+          "severity": "warning",
+          "job": "shop",
+          "service": "orders"
+        },
+        "summary": "orders is slow",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "HighLatencyP95 (warning) job=shop, service=orders",
+        "body": "orders is slow. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.5    0%    40ms    75MiB\norders       1     2.4    0%    1.3s    75MiB\npayments     1     1.5    0%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1\ndeployment orders: 1/2  <- NOT READY\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E5",
+        "kind": "pods",
+        "title": "pods not ready or restarted (now)",
+        "body": "orders-7c9d5f-k2x8q (orders): Running, ready=False, restarts=0",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E6",
+        "kind": "runbook",
+        "title": "high-latency.md (for HighLatencyP95)",
+        "body": "## What it means\n1 in 20 requests is slow. Usually CPU throttling, a slow database or a slow dependency.\n## Fix\n- Throttled → raise the CPU limit in the manifest and redeploy.\n- Slow after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database saturated → restart the offending client, not the database.",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 2,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

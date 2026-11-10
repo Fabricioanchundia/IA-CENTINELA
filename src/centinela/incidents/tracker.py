@@ -7,10 +7,16 @@ No I/O here, so every rule is easy to unit test:
   `orders` fail), or opens a new incident if nothing is open.
 * An alert that stops firing is resolved inside its incident.
 * An incident is resolved when none of its alerts is firing any more.
+* A late alert reopens the incident it belongs to (Phase 9). Some alerts lag: HighLatencyP95
+  averages 5 minutes of requests and waits 5 more, so it can fire minutes after the outage that
+  caused it has resolved. If nothing is open, new alerts that became active while a recently
+  resolved incident was still open reopen that incident; only the others open a new one. In the
+  chaos run such echoes caused a false alarm (incident 16, after the PostgreSQL outage) and
+  inflated the MTTD of the next incident (catalog down, 323 s instead of 53 s).
 """
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from centinela.incidents.models import Alert, OpenIncident, severity_rank
 
@@ -37,7 +43,23 @@ class ResolveIncident:
     incident_id: int
 
 
-Action = CreateIncident | AttachAlert | ResolveAlert | ResolveIncident
+@dataclass(frozen=True)
+class ReopenIncident:
+    incident_id: int
+
+
+@dataclass(frozen=True)
+class RecentIncident:
+    """A resolved incident, candidate to absorb late alerts."""
+
+    id: int
+    started_at: datetime
+    resolved_at: datetime
+
+
+REOPEN_WINDOW = timedelta(minutes=10)
+
+Action = CreateIncident | AttachAlert | ResolveAlert | ResolveIncident | ReopenIncident
 
 
 def _primary_first(alerts: list[Alert]) -> list[Alert]:
@@ -45,8 +67,25 @@ def _primary_first(alerts: list[Alert]) -> list[Alert]:
     return sorted(alerts, key=lambda a: (-severity_rank(a.severity), a.active_at))
 
 
-def plan(firing: list[Alert], open_incidents: list[OpenIncident], now: datetime) -> list[Action]:
-    del now  # kept in the signature: future rules (flap damping) depend on time
+def _late(
+    alerts: list[Alert], recent: list[RecentIncident], now: datetime
+) -> tuple[int | None, list[Alert]]:
+    """Split new alerts: those that became active while a recently resolved incident was still
+    open belong to it (late alerts); the rest are a new problem."""
+    candidates = [r for r in recent if now - r.resolved_at <= REOPEN_WINDOW]
+    if not candidates:
+        return None, []
+    last = max(candidates, key=lambda r: r.resolved_at)
+    late = [a for a in alerts if last.started_at <= a.active_at <= last.resolved_at]
+    return (last.id, late) if late else (None, [])
+
+
+def plan(
+    firing: list[Alert],
+    open_incidents: list[OpenIncident],
+    now: datetime,
+    recently_resolved: list[RecentIncident] | None = None,
+) -> list[Action]:
     actions: list[Action] = []
     firing_by_fp = {a.fingerprint: a for a in firing}
     known = {fp for inc in open_incidents for fp in inc.active_alerts}
@@ -57,7 +96,15 @@ def plan(firing: list[Alert], open_incidents: list[OpenIncident], now: datetime)
             target = max(open_incidents, key=lambda i: i.started_at)
             actions += [AttachAlert(target.id, a) for a in _primary_first(new_alerts)]
         else:
-            actions.append(CreateIncident(tuple(_primary_first(new_alerts))))
+            owner, late = _late(new_alerts, recently_resolved or [], now)
+            if owner is not None:
+                # The old incident was not really over: reopen it with its late alerts, so they
+                # neither raise a false alarm nor inflate the MTTD of a new incident.
+                actions.append(ReopenIncident(owner))
+                actions += [AttachAlert(owner, a) for a in _primary_first(late)]
+            fresh = [a for a in new_alerts if a not in late]
+            if fresh:
+                actions.append(CreateIncident(tuple(_primary_first(fresh))))
 
     attached_to: dict[int, int] = {}
     for action in actions:

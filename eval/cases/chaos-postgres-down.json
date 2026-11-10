@@ -1,0 +1,262 @@
+{
+  "name": "chaos-postgres-down",
+  "source": "chaos",
+  "fault": "PostgreSQL StatefulSet scaled to 0 (never touched by the agent)",
+  "expected": {
+    "root_cause": [
+      "postgres"
+    ],
+    "category": [
+      "dependency_failure",
+      "service_down",
+      "error_spike"
+    ],
+    "actions": [
+      "none"
+    ]
+  },
+  "evidence": {
+    "items": [
+      {
+        "id": "E1",
+        "body": "orders returns too many 5xx errors. Active since 15:52:54 UTC, still firing.",
+        "kind": "alert",
+        "title": "HighErrorRate (critical) service=orders",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "body": "orders cannot reach catalog. Active since 15:53:09 UTC, still firing.",
+        "kind": "alert",
+        "title": "UpstreamErrors (warning) upstream=catalog",
+        "services": [
+          "catalog",
+          "orders"
+        ]
+      },
+      {
+        "id": "E3",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     0.0     -    10ms    73MiB\norders       1     0.2  100%    2.0s    69MiB\npayments     1     0.0     -    21ms    67MiB",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E4",
+        "body": "orders -> catalog: 0.18 failed calls/s",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E5",
+        "body": "deployment catalog: 0/1  <- NOT READY\ndeployment loadgen: 1/1\ndeployment orders: 0/1  <- NOT READY\ndeployment payments: 0/1  <- NOT READY\nstatefulset postgres: 0/0  <- SCALED TO ZERO\ndeployment redis: 1/1",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments",
+          "postgres"
+        ]
+      },
+      {
+        "id": "E6",
+        "body": "catalog-6d666f4fb5-fg2qb (catalog): Running, ready=False, restarts=0\norders-7d4479bd-f9mvd (orders): Running, ready=False, restarts=0\npayments-76b74b87c7-fjbjf (payments): Running, ready=False, restarts=0",
+        "kind": "pods",
+        "title": "pods not ready or restarted (now)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E7",
+        "body": "Unhealthy payments-76b74b87c7-fjbjf x23: Readiness probe failed: Get \"http://10.42.0.207:8000/readyz\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)\nUnhealthy catalog-6d666f4fb5-fg2qb x25: Readiness probe failed: Get \"http://10.42.0.208:8000/readyz\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)\nUnhealthy orders-7d4479bd-f9mvd x22: Readiness probe failed: Get \"http://10.42.0.209:8000/readyz\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)\nUnhealthy orders-7d4479bd-f9mvd x2: Readiness probe failed: HTTP probe failed with statuscode: 503\nUnhealthy payments-76b74b87c7-fjbjf x2: Readiness probe failed: HTTP probe failed with statuscode: 503",
+        "kind": "k8s_events",
+        "title": "Kubernetes warning events (untrusted text)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E8",
+        "body": "13x error \"database ping failed\"\n7x warning \"error connecting in 'pool-1': connection failed: connection to server at \"10.43.1.44\", port 5432 failed: server closed the connection unexpectedly This probabl…\"",
+        "kind": "logs",
+        "title": "catalog error/warning log lines (untrusted text)",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E9",
+        "body": "6x error \"database ping failed\"\n6x error \"request\"\n5x error \"catalog unavailable\" upstream=catalog\n3x warning \"error connecting in 'pool-1': connection failed: connection to server at \"10.43.1.44\", port 5432 failed: server closed the connection unexpectedly This probabl…\"",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E10",
+        "body": "## What it means\nThe service is up but failing requests. In this shop it is almost always a **symptom**:\n`orders` returns 503 when `catalog` or `payments` cannot answer.\n## Fix\n- Dependency down → fix the dependency first ([service-down.md](service-down.md)); this alert\n  clears by itself about 2 minutes later (rate window).\n- Started right after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database errors → check `kubectl -n shop get pods -l app.kubernetes.io/name=postgres`.",
+        "kind": "runbook",
+        "title": "high-error-rate.md (for HighErrorRate)",
+        "services": []
+      },
+      {
+        "id": "E11",
+        "body": "## What it means\n`orders` cannot reach `catalog` or `payments` (label `upstream`): connection refused,\ntimeout (2 s) or a non-200 answer. It points directly at the dependency to investigate.\n## Fix\nFix the upstream service ([service-down.md](service-down.md)). Restarting `orders` does\n**not** help: it is the messenger, not the cause.",
+        "kind": "runbook",
+        "title": "upstream-errors.md (for UpstreamErrors)",
+        "services": []
+      },
+      {
+        "id": "E12",
+        "body": "root cause: payments scaled to 0 (drill)\nresolution: restored by hand: the approval came after the 15-minute expiry",
+        "kind": "history",
+        "title": "past incident #4: orders cannot reach payments (UpstreamErrors)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E13",
+        "body": "root cause: payments scaled to 0 replicas (drill); diagnosed automatically by the AI agent in 5 s\nresolution: scaled payments back to 1 replica, as the agent suggested",
+        "kind": "history",
+        "title": "past incident #3: orders cannot reach payments (UpstreamErrors)",
+        "services": [
+          "payments"
+        ]
+      },
+      {
+        "id": "E14",
+        "body": "root cause: payments scaled to 0 (drill); ServiceDown missed it because the target vanished\nresolution: scaled back to 1 replica; ServiceDown now alerts on missing targets",
+        "kind": "history",
+        "title": "past incident #1: orders cannot reach payments (UpstreamErrors)",
+        "services": [
+          "payments"
+        ]
+      }
+    ],
+    "notes": [],
+    "alerts": [
+      {
+        "name": "HighErrorRate",
+        "labels": {
+          "service": "orders",
+          "severity": "critical",
+          "alertname": "HighErrorRate"
+        },
+        "summary": "orders returns too many 5xx errors",
+        "severity": "critical",
+        "active_at": "2026-11-10T15:52:54.119218+00:00",
+        "resolved_at": null
+      },
+      {
+        "name": "UpstreamErrors",
+        "labels": {
+          "severity": "warning",
+          "upstream": "catalog",
+          "alertname": "UpstreamErrors"
+        },
+        "summary": "orders cannot reach catalog",
+        "severity": "warning",
+        "active_at": "2026-11-10T15:53:09.119218+00:00",
+        "resolved_at": null
+      }
+    ],
+    "version": 1,
+    "incident": {
+      "id": 15,
+      "title": "orders cannot reach catalog",
+      "status": "open",
+      "service": "catalog",
+      "category": "UpstreamErrors",
+      "severity": "critical",
+      "resolution": null,
+      "root_cause": null,
+      "started_at": "2026-11-10T15:53:09.119218+00:00",
+      "detected_at": "2026-11-10T15:54:31.021075+00:00",
+      "resolved_at": null
+    },
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "ready": 0,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "loadgen",
+        "ready": 1,
+        "desired": 1,
+        "revision": "15",
+        "rollout_at": "2026-11-10T15:16:01+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "ready": 0,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "ready": 0,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "ready": 0,
+        "desired": 0,
+        "revision": null,
+        "rollout_at": null
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "ready": 1,
+        "desired": 1,
+        "revision": "1",
+        "rollout_at": "2026-11-09T16:05:50+00:00"
+      }
+    ],
+    "observed_at": "2026-11-10T15:55:31.021075+00:00",
+    "quarantined": []
+  },
+  "live": {
+    "incident_id": 15,
+    "title": "orders cannot reach catalog",
+    "mttd_seconds": 81.9,
+    "detected_to_diagnosis_seconds": 76.3,
+    "model": "qwen3:8b",
+    "model_seconds": 13.0,
+    "root_cause": "postgres",
+    "category": "service_down",
+    "action": "scale_up:postgres",
+    "valid": true,
+    "baseline": "catalog",
+    "proposals": [],
+    "summary": "PostgreSQL is scaled to zero replicas, causing `catalog`, `orders`, and `payments` to fail connections and return 5xx errors."
+  }
+}

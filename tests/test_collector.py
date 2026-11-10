@@ -139,3 +139,26 @@ def test_logql_selector() -> None:
 def test_clock_default_is_timezone_aware() -> None:
     collector = Collector(FakeAlerts(), InMemoryIncidentStore())
     assert collector.clock().tzinfo is UTC
+
+
+def test_late_alert_reopens_instead_of_a_false_alarm() -> None:
+    from tests.test_tracker import LATE
+
+    alerts, store, clock = FakeAlerts(), InMemoryIncidentStore(), Clock()
+    collector = Collector(alerts, store, None, clock)
+    alerts.now = [SERVICE_DOWN]
+    collector.cycle()
+    clock.t = T0 + timedelta(minutes=5)
+    alerts.now = []
+    collector.cycle()  # resolved
+    clock.t = T0 + timedelta(minutes=7)
+    alerts.now = [LATE]  # active since T0+2m, fires late
+    collector.cycle()
+    [incident] = store.recent()  # no second incident
+    assert incident.status == "open" and incident.resolved_at is None
+    assert "incident_reopened" in [e["kind"] for e in store.events(incident.id)]
+    clock.t = T0 + timedelta(minutes=8)
+    alerts.now = []
+    collector.cycle()
+    [incident] = store.recent()
+    assert incident.status == "resolved" and incident.mttr_seconds == 7 * 60

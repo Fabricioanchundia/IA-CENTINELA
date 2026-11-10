@@ -1,0 +1,188 @@
+{
+  "name": "chaos-redis-down",
+  "source": "chaos",
+  "fault": "redis Deployment scaled to 0 replicas",
+  "expected": {
+    "root_cause": [
+      "redis"
+    ],
+    "category": [
+      "cache_failure",
+      "dependency_failure",
+      "service_down"
+    ],
+    "actions": [
+      "scale_up:redis"
+    ]
+  },
+  "evidence": {
+    "items": [
+      {
+        "id": "E1",
+        "body": "catalog cache (Redis) is failing. Active since 15:44:09 UTC, still firing.",
+        "kind": "alert",
+        "title": "CacheDegraded (warning) ",
+        "services": []
+      },
+      {
+        "id": "E2",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.7     -    2.3s    73MiB\norders       1     0.9     -    94ms    70MiB\npayments     1     0.8     -    21ms    68MiB",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "body": "orders -> catalog/payments: no failed calls",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "body": "errors 0.87/s, hits 0.00/s",
+        "kind": "cache",
+        "title": "catalog cache (Redis) lookups",
+        "services": [
+          "catalog",
+          "redis"
+        ]
+      },
+      {
+        "id": "E5",
+        "body": "deployment catalog: 1/1\ndeployment loadgen: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 0/0  <- SCALED TO ZERO",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "services": [
+          "redis"
+        ]
+      },
+      {
+        "id": "E6",
+        "body": "Unhealthy orders-7d4479bd-f9mvd x3: Startup probe failed: Get \"http://10.42.0.209:8000/healthz\": dial tcp 10.42.0.209:8000: connect: connection refused\nUnhealthy orders-7d4479bd-44f95 x1: Readiness probe failed: Get \"http://10.42.0.201:8000/readyz\": dial tcp 10.42.0.201:8000: connect: connection refused",
+        "kind": "k8s_events",
+        "title": "Kubernetes warning events (untrusted text)",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E7",
+        "body": "10x warning \"cache unavailable, could not store product list\"\n10x warning \"cache unavailable, reading from database\"",
+        "kind": "logs",
+        "title": "catalog error/warning log lines (untrusted text)",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E8",
+        "body": "## What it means\nRedis is down or unreachable. `catalog` keeps working by reading PostgreSQL directly\n(graceful degradation), so customers are **not** affected yet, but the database gets\nmore load.\n## Fix\n- `kubectl -n shop rollout restart deploy/redis` (data loss is fine: it is only a cache).",
+        "kind": "runbook",
+        "title": "cache-degraded.md (for CacheDegraded)",
+        "services": []
+      }
+    ],
+    "notes": [],
+    "alerts": [
+      {
+        "name": "CacheDegraded",
+        "labels": {
+          "severity": "warning",
+          "alertname": "CacheDegraded"
+        },
+        "summary": "catalog cache (Redis) is failing",
+        "severity": "warning",
+        "active_at": "2026-11-10T15:44:09.119218+00:00",
+        "resolved_at": null
+      }
+    ],
+    "version": 1,
+    "incident": {
+      "id": 14,
+      "title": "catalog cache (Redis) is failing",
+      "status": "open",
+      "service": null,
+      "category": "CacheDegraded",
+      "severity": "warning",
+      "resolution": null,
+      "root_cause": null,
+      "started_at": "2026-11-10T15:44:09.119218+00:00",
+      "detected_at": "2026-11-10T15:46:20.119579+00:00",
+      "resolved_at": null
+    },
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "loadgen",
+        "ready": 1,
+        "desired": 1,
+        "revision": "15",
+        "rollout_at": "2026-11-10T15:16:01+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "ready": 1,
+        "desired": 1,
+        "revision": null,
+        "rollout_at": null
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "ready": 0,
+        "desired": 0,
+        "revision": "1",
+        "rollout_at": "2026-11-09T16:05:50+00:00"
+      }
+    ],
+    "observed_at": "2026-11-10T15:47:20.119579+00:00",
+    "quarantined": []
+  },
+  "live": {
+    "incident_id": 14,
+    "title": "catalog cache (Redis) is failing",
+    "mttd_seconds": 131.0,
+    "detected_to_diagnosis_seconds": 74.7,
+    "model": "qwen3:8b",
+    "model_seconds": 11.39,
+    "root_cause": "redis",
+    "category": "cache_failure",
+    "action": "scale_up:redis",
+    "valid": true,
+    "baseline": "redis",
+    "proposals": [
+      "scale_up:redis"
+    ],
+    "summary": "Redis is scaled to zero replicas, causing the catalog cache to fail and increasing database load."
+  }
+}

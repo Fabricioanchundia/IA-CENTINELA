@@ -1,0 +1,156 @@
+{
+  "name": "synthetic-history-says-redis",
+  "source": "synthetic",
+  "fault": "catalog scaled to 0; the most similar past incident was caused by redis",
+  "expected": {
+    "root_cause": [
+      "catalog"
+    ],
+    "category": [
+      "service_down"
+    ],
+    "actions": [
+      "scale_up:catalog"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "catalog is down",
+      "category": "ServiceDown",
+      "service": "catalog",
+      "severity": "critical",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "ServiceDown",
+        "severity": "critical",
+        "labels": {
+          "alertname": "ServiceDown",
+          "severity": "critical",
+          "job": "shop",
+          "service": "catalog"
+        },
+        "summary": "catalog is down",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "ServiceDown (critical) job=shop, service=catalog",
+        "body": "catalog is down. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog     NO SCRAPE TARGET (no running instance found)\norders       1     1.5   20%    40ms    75MiB\npayments     1     1.5    0%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 0/0  <- SCALED TO ZERO\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E5",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "body": "4x error \"catalog unavailable\"",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E6",
+        "kind": "runbook",
+        "title": "service-down.md (for ServiceDown)",
+        "body": "## What it means\nPrometheus has no healthy target for a shop service: the process is dead or unreachable\n(`up == 0`), or **no pod exists at all** (scaled to 0, deleted). In Kubernetes the second\ncase does not produce `up == 0`: the target simply disappears, so the alert also checks for\nservices seen in the last hour that have no `up` series now.\n## Fix\n- Crash loop after a deploy → roll back: `kubectl -n shop rollout undo deploy/<service>`.\n- Scaled to 0 → `kubectl -n shop scale deploy/<service> --replicas=1`.\n- Stuck pod → `kubectl -n shop rollout restart deploy/<service>`.\n- OOMKilled → see [high-memory.md](high-memory.md).",
+        "services": []
+      },
+      {
+        "id": "E7",
+        "kind": "history",
+        "title": "past incident #2: catalog is down (ServiceDown)",
+        "body": "root cause: redis evicted the product cache and catalog stopped answering\nresolution: restarted redis",
+        "services": [
+          "catalog"
+        ]
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 0,
+        "ready": 0,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

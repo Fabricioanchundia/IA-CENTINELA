@@ -39,7 +39,7 @@ class OllamaChat:
         base_url: str,
         model: str,
         num_ctx: int = 4096,
-        think: bool = False,
+        think: bool | None = False,
         timeout_s: float = 300.0,
         client: httpx.Client | None = None,
     ) -> None:
@@ -59,19 +59,18 @@ class OllamaChat:
 
     def chat_json(self, messages: list[dict[str, str]], schema: dict[str, Any]) -> LlmReply:
         started = time.monotonic()
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "format": schema,
+            "stream": False,
+            "keep_alive": "10m",
+            "options": {"temperature": 0, "seed": 42, "num_ctx": self.num_ctx},
+        }
+        if self.think is not None:  # None: a model without a thinking mode (e.g. qwen2.5)
+            body["think"] = self.think
         try:
-            resp = self.http.post(
-                "/api/chat",
-                json={
-                    "model": self.model,
-                    "messages": messages,
-                    "format": schema,
-                    "stream": False,
-                    "think": self.think,
-                    "keep_alive": "10m",
-                    "options": {"temperature": 0, "seed": 42, "num_ctx": self.num_ctx},
-                },
-            )
+            resp = self.http.post("/api/chat", json=body)
             resp.raise_for_status()
         except httpx.HTTPError as exc:
             raise LlmError(f"ollama unreachable or failed: {exc!r}") from exc

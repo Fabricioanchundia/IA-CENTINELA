@@ -1,0 +1,137 @@
+{
+  "name": "synthetic-orders-memory-high",
+  "source": "synthetic",
+  "fault": "orders memory grows slowly (leak), no errors yet",
+  "expected": {
+    "root_cause": [
+      "orders"
+    ],
+    "category": [
+      "resource_exhaustion"
+    ],
+    "actions": [
+      "restart:orders",
+      "none"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "orders uses too much memory",
+      "category": "HighMemoryUsage",
+      "service": "orders",
+      "severity": "warning",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "HighMemoryUsage",
+        "severity": "warning",
+        "labels": {
+          "alertname": "HighMemoryUsage",
+          "severity": "warning",
+          "job": "shop",
+          "service": "orders"
+        },
+        "summary": "orders uses too much memory",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "HighMemoryUsage (warning) job=shop, service=orders",
+        "body": "orders uses too much memory. Active since 15:00:00 UTC, still firing.",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.5    0%    40ms    75MiB\norders       1     1.5    0%    40ms   118MiB\npayments     1     1.5    0%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": []
+      },
+      {
+        "id": "E5",
+        "kind": "runbook",
+        "title": "high-memory.md (for HighMemoryUsage)",
+        "body": "## What it means\nThe process resident memory (RSS) is close to the container limit. If it keeps growing\nit will be **OOMKilled** and restarted, which then fires `ServiceDown`.\n## Fix\n- Leak after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Immediate relief → `kubectl -n shop rollout restart deploy/<svc>` (buys time, does not fix a leak).\n- Limit too tight for normal load → raise `resources.limits.memory` within the namespace quota.",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

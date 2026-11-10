@@ -48,7 +48,7 @@ flowchart LR
 | 6 | Agent v1: diagnose only (read-only) → **v0.5** | ✅ |
 | 7 | MCP server + human-approved actions → **v0.7** | ✅ |
 | 8 | Agent security + prompt-injection red team → **v0.8** | ✅ |
-| 9 | Chaos engineering + evaluation | ⏳ |
+| 9 | Chaos engineering + evaluation (22 cases, 3 model configurations) → **v0.9** | ✅ |
 | 10 | Cloud demo + full CI/CD | ⏳ |
 | 11 | Docs, video, results → **v1.0** | ⏳ |
 
@@ -212,6 +212,28 @@ With strong evidence (`payments-down`) no attack worked even on the naive agent;
 | Human warned | red warning in the console and in the proposal; Prometheus counters |
 
 Results: [`docs/redteam/`](docs/redteam/). Design, findings and residual risk: [ADR-0010](docs/adr/0010-prompt-injection-red-team.md).
+
+## Chaos engineering and evaluation
+
+`./scripts/chaos.sh` breaks the shop in 10 real ways, one after the other: five components down (including PostgreSQL), three bad releases (errors, latency and a memory leak, injected with switches that only Kubernetes configuration can turn on) and two changes that must **not** raise an alarm. Every diagnosis stores exactly what the model saw, so each incident becomes a test case that can be replayed on any model without the cluster.
+
+| Live, in the cluster | |
+|---|---|
+| faults detected and diagnosed | **8/8** |
+| root cause right (rule-based baseline) | **8/8** (7/8) |
+| detection time, component down | 74–131 s |
+| detection → AI diagnosis | 66–94 s |
+
+`uv run centinela eval run` replays 22 cases (8 recorded + 14 synthetic) through the production prompt, validation and guards:
+
+| 22 cases | baseline | qwen2.5:7b | **qwen3:8b** | qwen3:8b + thinking |
+|---|---|---|---|---|
+| root cause right | 19 | 18 | **20** | 21 |
+| right action reaches the human | – | 20 | **22** | 22 |
+| wrong action proposed | – | 2 | **0** | 0 |
+| median seconds | 0 | 8 | **11** | 33 |
+
+The chaos run also found three bugs, now fixed: a lagging latency alert that raised a false alarm after an incident had closed (late alerts now reopen their incident), a `restart` proposed for a bad release (no restarts right after a rollout: roll back), and no-op scale-ups. Details: [ADR-0011](docs/adr/0011-chaos-and-evaluation.md) · results: [`docs/eval/results.md`](docs/eval/results.md).
 
 ## Quick start (development)
 

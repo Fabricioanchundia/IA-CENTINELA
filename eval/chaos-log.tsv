@@ -1,0 +1,10 @@
+payments-down	incident	diagnosed	11	payments Deployment scaled to 0 replicas
+catalog-down	incident	diagnosed	12	catalog Deployment scaled to 0 replicas
+orders-down	incident	diagnosed	13	orders Deployment scaled to 0 replicas
+redis-down	incident	diagnosed	14	redis Deployment scaled to 0 replicas
+postgres-down	incident	diagnosed	15	PostgreSQL StatefulSet scaled to 0 (never touched by the agent)
+payments-pod-killed	no-incident	false-alarm	16	one payments pod deleted; Kubernetes replaces it in seconds
+orders-bad-image	no-incident	ok	-	orders rollout to an image that does not exist; the old pod keeps serving
+payments-bad-release	incident	diagnosed	17	new payments release fails 50% of requests (fix: rollback)
+catalog-slow-release	incident	diagnosed	18	new catalog release adds 1.5 s to every request (fix: rollback)
+orders-memory-leak	incident	diagnosed	19	new orders release leaks 64 KiB per request (fix: rollback; a restart buys time)

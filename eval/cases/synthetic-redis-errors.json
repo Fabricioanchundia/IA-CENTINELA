@@ -1,0 +1,153 @@
+{
+  "name": "synthetic-redis-errors",
+  "source": "synthetic",
+  "fault": "redis is up but refuses commands (out of memory), catalog falls back to the database",
+  "expected": {
+    "root_cause": [
+      "redis"
+    ],
+    "category": [
+      "cache_failure"
+    ],
+    "actions": [
+      "restart:redis",
+      "none"
+    ]
+  },
+  "evidence": {
+    "version": 1,
+    "incident": {
+      "id": 1,
+      "title": "catalog cache (Redis) is failing",
+      "category": "CacheDegraded",
+      "service": null,
+      "severity": "warning",
+      "status": "open",
+      "started_at": "2026-11-10T15:00:00+00:00",
+      "detected_at": "2026-11-10T15:01:15+00:00",
+      "resolved_at": null,
+      "root_cause": null,
+      "resolution": null
+    },
+    "alerts": [
+      {
+        "name": "CacheDegraded",
+        "severity": "warning",
+        "labels": {
+          "alertname": "CacheDegraded",
+          "severity": "warning",
+          "job": "shop"
+        },
+        "summary": "catalog cache (Redis) is failing",
+        "active_at": "2026-11-10T15:00:00+00:00",
+        "resolved_at": null
+      }
+    ],
+    "observed_at": "2026-11-10T15:02:15+00:00",
+    "items": [
+      {
+        "id": "E1",
+        "kind": "alert",
+        "title": "CacheDegraded (warning) job=shop",
+        "body": "catalog cache (Redis) is failing. Active since 15:00:00 UTC, still firing.",
+        "services": []
+      },
+      {
+        "id": "E2",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog      1     1.5    0%   300ms    75MiB\norders       1     1.5    0%    40ms    75MiB\npayments     1     1.5    0%    40ms    75MiB",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "body": "orders -> catalog/payments: no failed calls",
+        "services": []
+      },
+      {
+        "id": "E4",
+        "kind": "cache",
+        "title": "catalog cache (Redis) lookups",
+        "body": "errors 2.10/s, hits 2.50/s",
+        "services": [
+          "catalog",
+          "redis"
+        ]
+      },
+      {
+        "id": "E5",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "body": "deployment catalog: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "services": []
+      },
+      {
+        "id": "E6",
+        "kind": "logs",
+        "title": "catalog error/warning log lines (untrusted text)",
+        "body": "7x warning \"cache error: OOM command not allowed when used memory > maxmemory\"",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E7",
+        "kind": "runbook",
+        "title": "cache-degraded.md (for CacheDegraded)",
+        "body": "## What it means\nRedis is down or unreachable. `catalog` keeps working by reading PostgreSQL directly\n(graceful degradation), so customers are **not** affected yet, but the database gets\nmore load.\n## Fix\n- `kubectl -n shop rollout restart deploy/redis` (data loss is fine: it is only a cache).",
+        "services": []
+      }
+    ],
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": null,
+        "revision": "4"
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "desired": 1,
+        "ready": 1,
+        "rollout_at": "2026-11-09T15:00:00+00:00",
+        "revision": "4"
+      }
+    ],
+    "notes": [],
+    "quarantined": []
+  },
+  "live": {}
+}

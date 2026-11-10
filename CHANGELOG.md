@@ -6,6 +6,30 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-10
+
+The agent is measured: 10 real faults in the cluster and 22 replayable cases on three model
+configurations. The chaos run found three bugs, all fixed.
+
+### Added
+- `scripts/chaos.sh`: 10 real faults (5 components down, 3 bad releases, 2 false-alarm checks),
+  unattended, every fault repaired on exit.
+- Fault-injection switches in the shop (`CHAOS_ERROR_RATIO`, `CHAOS_LATENCY_S`, `CHAOS_LEAK_KB`),
+  environment only, never on health or metrics endpoints.
+- Evidence snapshots stored with every diagnosis (audit trail, and the basis of replay).
+- `centinela eval snapshot` (incident → case), `centinela eval synthesize` (14 synthetic cases),
+  `centinela eval run` (replay on local models, writes `docs/eval/results.{md,json}`).
+- "What changed?": rollouts in the last 10 minutes are flagged in the evidence.
+- ADR-0011 with the live and offline results.
+
+### Changed
+- A late alert that became active while a recently resolved incident was still open reopens that
+  incident instead of opening a new one (it caused a false alarm and an inflated MTTD).
+- No `restart` is proposed for a deployment rolled out just before the incident (roll back).
+- No `scale_up` is proposed for a deployment that already has all its replicas.
+- Models without a thinking mode (qwen2.5) no longer receive the `think` flag.
+
+
 ## [0.8.0] - 2026-11-10
 
 The agent is attacked with prompt injection on purpose, and guards in code stop what the prompt

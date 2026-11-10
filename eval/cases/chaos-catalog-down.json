@@ -1,0 +1,191 @@
+{
+  "name": "chaos-catalog-down",
+  "source": "chaos",
+  "fault": "catalog Deployment scaled to 0 replicas",
+  "expected": {
+    "root_cause": [
+      "catalog"
+    ],
+    "category": [
+      "service_down"
+    ],
+    "actions": [
+      "scale_up:catalog"
+    ]
+  },
+  "evidence": {
+    "items": [
+      {
+        "id": "E1",
+        "body": "orders is slow. Active since 15:28:24 UTC, still firing.",
+        "kind": "alert",
+        "title": "HighLatencyP95 (warning) service=orders",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E2",
+        "body": "service     up   req/s   5xx     p95   memory\ncatalog     NO SCRAPE TARGET (no running instance found)\norders       1     0.5   44%    1.8s    70MiB\npayments     1     0.2     -    21ms    68MiB",
+        "kind": "metrics",
+        "title": "per service (Prometheus)",
+        "services": [
+          "catalog",
+          "orders",
+          "payments"
+        ]
+      },
+      {
+        "id": "E3",
+        "body": "orders -> catalog: 0.14 failed calls/s",
+        "kind": "dependencies",
+        "title": "calls from orders to its dependencies",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E4",
+        "body": "deployment catalog: 0/0  <- SCALED TO ZERO\ndeployment loadgen: 1/1\ndeployment orders: 1/1\ndeployment payments: 1/1\nstatefulset postgres: 1/1\ndeployment redis: 1/1",
+        "kind": "workloads",
+        "title": "shop deployments and statefulsets, ready/desired replicas (now)",
+        "services": [
+          "catalog"
+        ]
+      },
+      {
+        "id": "E5",
+        "body": "redis-5c7d65f599-vbfld (redis): Running, ready=True, restarts=1, last termination Unknown",
+        "kind": "pods",
+        "title": "pods not ready or restarted (now)",
+        "services": [
+          "redis"
+        ]
+      },
+      {
+        "id": "E6",
+        "body": "Unhealthy catalog-6d666f4fb5-vssgl x1: Readiness probe failed: Get \"http://10.42.0.198:8000/readyz\": dial tcp 10.42.0.198:8000: connect: connection refused\nUnhealthy payments-76b74b87c7-fjbjf x3: Startup probe failed: Get \"http://10.42.0.207:8000/healthz\": dial tcp 10.42.0.207:8000: connect: connection refused",
+        "kind": "k8s_events",
+        "title": "Kubernetes warning events (untrusted text)",
+        "services": [
+          "catalog",
+          "payments"
+        ]
+      },
+      {
+        "id": "E7",
+        "body": "10x error \"request\"\n10x error \"catalog unavailable\" upstream=catalog",
+        "kind": "logs",
+        "title": "orders error/warning log lines (untrusted text)",
+        "services": [
+          "orders"
+        ]
+      },
+      {
+        "id": "E8",
+        "body": "## What it means\n1 in 20 requests is slow. Usually CPU throttling, a slow database or a slow dependency.\n## Fix\n- Throttled → raise the CPU limit in the manifest and redeploy.\n- Slow after a deploy → `kubectl -n shop rollout undo deploy/<svc>`.\n- Database saturated → restart the offending client, not the database.",
+        "kind": "runbook",
+        "title": "high-latency.md (for HighLatencyP95)",
+        "services": []
+      }
+    ],
+    "notes": [],
+    "alerts": [
+      {
+        "name": "HighLatencyP95",
+        "labels": {
+          "service": "orders",
+          "severity": "warning",
+          "alertname": "HighLatencyP95"
+        },
+        "summary": "orders is slow",
+        "severity": "warning",
+        "active_at": "2026-11-10T15:28:24.119218+00:00",
+        "resolved_at": null
+      }
+    ],
+    "version": 1,
+    "incident": {
+      "id": 12,
+      "title": "orders is slow",
+      "status": "open",
+      "service": "orders",
+      "category": "HighLatencyP95",
+      "severity": "warning",
+      "resolution": null,
+      "root_cause": null,
+      "started_at": "2026-11-10T15:28:24.119218+00:00",
+      "detected_at": "2026-11-10T15:33:47.344752+00:00",
+      "resolved_at": null
+    },
+    "workloads": [
+      {
+        "kind": "deployment",
+        "name": "catalog",
+        "ready": 0,
+        "desired": 0,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "loadgen",
+        "ready": 1,
+        "desired": 1,
+        "revision": "15",
+        "rollout_at": "2026-11-10T15:16:01+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "orders",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "deployment",
+        "name": "payments",
+        "ready": 1,
+        "desired": 1,
+        "revision": "16",
+        "rollout_at": "2026-11-10T15:16:05+00:00"
+      },
+      {
+        "kind": "statefulset",
+        "name": "postgres",
+        "ready": 1,
+        "desired": 1,
+        "revision": null,
+        "rollout_at": null
+      },
+      {
+        "kind": "deployment",
+        "name": "redis",
+        "ready": 1,
+        "desired": 1,
+        "revision": "1",
+        "rollout_at": "2026-11-09T16:05:50+00:00"
+      }
+    ],
+    "observed_at": "2026-11-10T15:34:47.344752+00:00",
+    "quarantined": []
+  },
+  "live": {
+    "incident_id": 12,
+    "title": "orders is slow",
+    "mttd_seconds": 323.2,
+    "detected_to_diagnosis_seconds": 69.2,
+    "model": "qwen3:8b",
+    "model_seconds": 8.28,
+    "root_cause": "catalog",
+    "category": "dependency_failure",
+    "action": "scale_up:catalog",
+    "valid": true,
+    "baseline": "catalog",
+    "proposals": [
+      "scale_up:catalog"
+    ],
+    "summary": "The catalog service is down, causing orders to be slow and show errors."
+  }
+}

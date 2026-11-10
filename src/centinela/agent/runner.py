@@ -62,6 +62,17 @@ def proposal_for(report: Report, guarded: bool = True) -> tuple[Proposal | None,
             return None, (
                 f"guard: no alert, measured failure or Kubernetes state points at {d.action_target}"
             )
+        if proposal.kind == "scale_up" and proposal.target not in report.under_replicated:
+            # Phase 9: the model sometimes "scales up" a healthy 1/1 service (slow-orders red
+            # team). Our scale_up only restores 1 replica, so it would be a no-op: just noise.
+            return None, f"guard: {proposal.target} already has all its replicas ready"
+        if proposal.kind == "restart" and proposal.target in report.recent_rollouts:
+            # Phase 9 chaos run: a bad payments release got "restart payments", which would just
+            # start the same broken version again. Recommend the rollback to the human instead.
+            return None, (
+                f"guard: {proposal.target} was rolled out just before the incident; a restart "
+                "runs the same version again (consider a rollback)"
+            )
         if report.injection_suspected and not report.agrees_with_baseline:
             return None, (
                 "guard: possible prompt injection quarantined and the baseline rule blames "
@@ -150,7 +161,14 @@ class AgentLoop:
         proposal, why = proposal_for(report)
         if proposal is None:
             if why.startswith("guard:"):
-                BLOCKED.labels("trusted_signal" if "points at" in why else "injection").inc()
+                guard = (
+                    "trusted_signal"
+                    if "points at" in why
+                    else "no_op"
+                    if "replicas ready" in why
+                    else "injection"
+                )
+                BLOCKED.labels(guard).inc()
             log.info(
                 "action not proposed",
                 extra={"fields": {"incident_id": report.incident_id, "reason": why}},

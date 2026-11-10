@@ -1,5 +1,6 @@
 """Pieces shared by the three services: request IDs, access logs, metrics and health."""
 
+import asyncio
 import logging
 import time
 import uuid
@@ -10,6 +11,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from shop.chaos import Chaos
 from shop.logs import request_id_var
 from shop.metrics import HTTP_LATENCY, HTTP_REQUESTS
 
@@ -28,6 +30,8 @@ def route_template(request: Request) -> str:
 
 def install_common(app: FastAPI, readiness: Callable[[], dict[str, str]]) -> None:
     """Add request-id, access-log and metrics middleware plus /healthz, /readyz, /metrics."""
+    chaos = Chaos.from_env()  # Phase 9 fault injection, off unless configured
+    app.state.chaos = chaos
 
     @app.middleware("http")
     async def request_context(
@@ -38,6 +42,15 @@ def install_common(app: FastAPI, readiness: Callable[[], dict[str, str]]) -> Non
         start = time.perf_counter()
         status = 500
         try:
+            if chaos.active and request.url.path not in UNINSTRUMENTED:
+                chaos.leak()
+                if chaos.latency_s:
+                    await asyncio.sleep(chaos.latency_s)
+                if chaos.should_fail():
+                    log.error("unhandled error while processing request")
+                    failed = JSONResponse({"detail": "internal server error"}, status_code=500)
+                    failed.headers[REQUEST_ID_HEADER] = request_id
+                    return failed
             response = await call_next(request)
             status = response.status_code
             response.headers[REQUEST_ID_HEADER] = request_id

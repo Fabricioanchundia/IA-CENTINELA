@@ -10,6 +10,9 @@ centinela executor                      run approved actions (in the cluster, na
 centinela console                       web page to approve or reject actions (port 8000)
 centinela mcp                           MCP server on stdio: read incidents, propose actions
 centinela redteam                       prompt-injection attacks vs the agent (needs only Ollama)
+centinela eval snapshot ID ...          turn a chaos-drill incident into an evaluation case
+centinela eval synthesize               (re)write the synthetic evaluation cases
+centinela eval run                      replay every case on the local model(s) and score them
 centinela incidents list                recent incidents with MTTD / MTTR
 centinela incidents show ID             timeline: alerts, logs, resolution
 centinela incidents close ID --cause .. --resolution ..   write the postmortem
@@ -80,6 +83,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     red.add_argument("--out", default="docs/redteam", help="where to write the results")
     red.add_argument("--list", action="store_true", help="list the attacks and exit")
+    ev = sub.add_parser("eval", help="evaluate the agent on recorded and synthetic incidents")
+    ev_sub = ev.add_subparsers(dest="action", required=True)
+    snap = ev_sub.add_parser("snapshot", help="print an incident as an evaluation case (JSON)")
+    snap.add_argument("id", type=int)
+    snap.add_argument("--name", required=True)
+    snap.add_argument("--fault", required=True, help="what was really broken")
+    snap.add_argument("--root", required=True, help="acceptable root causes, comma-separated")
+    snap.add_argument("--category", required=True, help="acceptable categories")
+    snap.add_argument(
+        "--actions", required=True, help='right proposals: "scale_up:payments" or "none"'
+    )
+    synth = ev_sub.add_parser("synthesize", help="write the synthetic cases")
+    synth.add_argument("--out", default="eval/cases")
+    erun = ev_sub.add_parser("run", help="replay the cases on local models (needs only Ollama)")
+    erun.add_argument("--cases", default="eval/cases")
+    erun.add_argument("--models", default="", help="comma-separated (default: OLLAMA_MODEL)")
+    erun.add_argument("--think", action="store_true", help="also qwen3 with thinking on")
+    erun.add_argument("--only", default="", help="comma-separated case names")
+    erun.add_argument("--out", default="docs/eval")
 
     incidents = sub.add_parser("incidents", help="incident history")
     isub = incidents.add_subparsers(dest="action", required=True)
@@ -432,6 +454,130 @@ def run_redteam(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_eval(args: argparse.Namespace) -> int:
+    from centinela.actions.store import PostgresActionStore
+    from centinela.eval import cases
+
+    if args.action == "snapshot":
+        settings = Settings.from_env()
+        pool = make_pool(settings.database_url)
+        try:
+            case = cases.from_incident(
+                PostgresIncidentStore(pool),
+                PostgresActionStore(pool),
+                args.id,
+                args.name,
+                args.fault,
+                args.root,
+                args.category,
+                args.actions,
+            )
+        except cases.NotDiagnosedError as exc:
+            print(str(exc), file=sys.stderr)
+            return 3
+        except LookupError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        print(json.dumps(case.to_json(), indent=2, ensure_ascii=False))
+        return 0
+    if args.action == "synthesize":
+        from pathlib import Path
+
+        from centinela.eval import synthetic
+
+        settings = Settings.from_env()
+        paths = synthetic.write_all(Path(settings.runbooks_dir), Path(args.out))
+        print(f"{len(paths)} synthetic cases written to {args.out}")
+        return 0
+    if args.action == "run":
+        return _eval_run(args)
+    return 2
+
+
+def _eval_run(args: argparse.Namespace) -> int:
+    import logging
+    from pathlib import Path
+
+    import httpx
+
+    from centinela.agent.llm import OllamaChat
+    from centinela.eval import cases
+    from centinela.eval.run import Config, Score, run_all, summary, write
+
+    logging.basicConfig(level=logging.ERROR)
+    settings = Settings.from_env()
+    loaded = cases.load(Path(args.cases))
+    wanted = {n.strip() for n in args.only.split(",") if n.strip()}
+    loaded = [c for c in loaded if not wanted or c.name in wanted]
+    if not loaded:
+        print(f"no cases in {args.cases} (run `centinela eval synthesize` or scripts/chaos.sh)")
+        return 2
+    try:
+        tags = httpx.get(f"{settings.ollama_url}/api/tags", timeout=5).json()
+    except (httpx.HTTPError, ValueError) as exc:
+        print(f"cannot reach Ollama at {settings.ollama_url} ({type(exc).__name__})")
+        return 2
+    have = {m.get("name") for m in tags.get("models", [])}
+    models = [m.strip() for m in (args.models or settings.ollama_model).split(",") if m.strip()]
+    missing = [m for m in models if m not in have]
+    if missing:
+        print(f"not in Ollama: {', '.join(missing)}. Download with:")
+        for m in missing:
+            print(f'  curl -s {settings.ollama_url}/api/pull -d \'{{"model": "{m}"}}\' | tail -1')
+        return 2
+    configs = [
+        Config(m, m, False if m.startswith("qwen3") else None, settings.ollama_num_ctx)
+        for m in models
+    ]
+    if args.think:
+        # Thinking needs room for the reasoning tokens: 8K context instead of 4K.
+        configs += [
+            Config(f"{m} +thinking", m, True, 8192) for m in models if m.startswith("qwen3")
+        ]
+    total = len(loaded) * len(configs)
+    print(
+        f"evaluation: {len(loaded)} cases x {len(configs)} configurations = {total} runs",
+        flush=True,
+    )
+
+    def make_llm(config: Config) -> OllamaChat:
+        llm = OllamaChat(
+            settings.ollama_url,
+            config.model,
+            num_ctx=config.num_ctx,
+            think=config.think,
+            timeout_s=600,
+        )
+        print(f"\n== {config.label}: loading the model ...", flush=True)
+        llm.warm()
+        return llm
+
+    def progress(i: int, n: int, s: Score) -> None:
+        verdict = "ok" if s.root_ok and s.action_ok else ("HARMFUL" if s.harmful else "wrong")
+        print(
+            f"[{i:>2}/{n}] {s.case:<36} {s.root_cause:<9} {s.proposal:<18} -> {verdict}"
+            f"  ({s.seconds:.0f}s)",
+            flush=True,
+        )
+
+    scores = run_all(loaded, configs, make_llm, progress)
+    print(
+        f"\n{'configuration':<22}{'all right':>11}{'root cause':>12}{'right action':>14}"
+        f"{'harmful':>9}{'median s':>10}"
+    )
+    for c in configs:
+        t = summary(scores, c.label)
+        print(
+            f"{c.label:<22}{t['fully_right']:>7}/{t['cases']:<4}{t['root_cause']:>7}/{t['cases']:<4}"
+            f"{t['right_action']:>9}/{t['cases']:<4}{t['harmful']:>8} {t['median_seconds']:>9}"
+        )
+    t = summary(scores, configs[0].label)
+    print(f"{'rule-based baseline':<22}{'':>11}{t['baseline_root_cause']:>7}/{t['cases']:<4}")
+    json_path, md_path = write(scores, configs, loaded, Path(args.out))
+    print(f"\nresults: {md_path} (tables) and {json_path} (every answer)")
+    return 0
+
+
 def run_incidents(args: argparse.Namespace) -> int:
     store = _store()
     if args.action == "list":
@@ -501,7 +647,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_mcp()
     if args.command == "redteam":
         return run_redteam(args)
-    print(f"centinela {__version__} - phase 8: red team + injection guards (try: centinela --help)")
+    if args.command == "eval":
+        return run_eval(args)
+    print(f"centinela {__version__} - phase 9: chaos + evaluation (try: centinela --help)")
     return 0
 
 
