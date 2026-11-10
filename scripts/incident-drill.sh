@@ -65,10 +65,15 @@ if [[ -n "$action" ]]; then
   if [[ -t 0 ]]; then
     # The proposal expires 15 min after it was made: do not wait longer than ~14 min here
     printf '\a\n  \033[1;33mYOUR DECISION IS NEEDED: the drill waits up to 14 min (then the action expires).\033[0m\n'
+    printf '  Decide here, or in the web console (./scripts/k8s.sh console) and then press Enter.\n'
     read -r -t 840 -p "  Approve action $action? [y/N] " answer || answer=n
   fi
-  if [[ "$answer" =~ ^[yYsS] ]] &&
-    cli approve "$action" --by "${APPROVER:-$USER}" --note "approved during the incident drill"; then
+  decided=$(cli actions --all | awk -v a="$action" '$1 == a {print $3; exit}')
+  if [[ "$decided" == "approved" || "$decided" == "executed" ]]; then
+    echo "  action $action was approved in the web console"
+  fi
+  if [[ "$decided" == "approved" || "$decided" == "executed" ]] || { [[ "$answer" =~ ^[yYsS] ]] &&
+    cli approve "$action" --by "${APPROVER:-$USER}" --note "approved during the incident drill"; }; then
     step "The executor runs the approved action and verifies it"
     for _ in $(seq 40); do
       state=$(cli actions --all | awk -v a="$action" '$1 == a {print $3; exit}')
@@ -78,9 +83,11 @@ if [[ -n "$action" ]]; then
     echo
     cli actions --all --limit 1
     [[ "$state" == "executed" ]] && fixed_by_agent=1
-  else
+  elif [[ "$decided" == "pending" ]]; then
     cli reject "$action" --by "${APPROVER:-$USER}" --note "not approved during the drill: fixed by hand" ||
       echo "  (the action was already closed)"
+  else
+    echo "  action $action is $decided"
   fi
 else
   echo "  no action proposed (check: kubectl -n centinela logs deploy/centinela-agent --tail=20)"

@@ -2,7 +2,7 @@
 
 import os
 import uuid
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -125,3 +125,39 @@ def test_action_lifecycle_and_audit(store: PostgresIncidentStore) -> None:
             "has_table_privilege('grafana_reader', 'incident_actions', 'UPDATE') AS w"
         ).fetchone()
     assert row is not None and row["r"] is True and row["w"] is False
+
+
+def test_console_role_can_only_record_decisions(store: PostgresIncidentStore) -> None:
+    import psycopg
+
+    from centinela.actions.approvals import approve
+    from centinela.actions.policy import check
+    from centinela.actions.store import PostgresActionStore
+    from centinela.incidents.store import CONSOLE_ROLE, make_pool
+
+    password = uuid.uuid4().hex
+    store.migrate(console_password=password)
+    incident_id = store.create((SERVICE_DOWN,), T0)
+    now = datetime.now(UTC)
+    action = PostgresActionStore(store.pool).propose(
+        incident_id, check("scale_up", "payments"), "down", "centinela-agent", now
+    )
+    assert action is not None
+
+    url = f"user={CONSOLE_ROLE} password={password}"
+    console = PostgresActionStore(make_pool(url))
+    decided = approve(console, action.id, "Fabricio", now)  # the one thing it may do
+    assert decided.status == "approved" and decided.decided_by == "Fabricio"
+
+    forbidden = [
+        "UPDATE incident_actions SET target = 'postgres'",  # cannot change WHAT runs
+        """UPDATE incident_actions SET params = '{"replicas": 3}'""",
+        "DELETE FROM incident_actions",  # cannot erase the audit trail
+        "DELETE FROM incident_events",
+        "UPDATE incidents SET root_cause = 'x'",
+        "INSERT INTO incident_actions (incident_id, kind, target, reason, proposed_by, "
+        "proposed_at, expires_at) VALUES (1, 'restart', 'orders', 'x', 'x', now(), now())",
+    ]
+    for statement in forbidden:
+        with psycopg.connect(url) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(statement)

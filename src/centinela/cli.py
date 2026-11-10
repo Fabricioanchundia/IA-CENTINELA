@@ -7,6 +7,7 @@ centinela actions [--all]               actions waiting for a human (--all: hist
 centinela approve ID --by NAME          approve an action; the executor runs it
 centinela reject ID --by NAME --note .. reject an action, with the reason
 centinela executor                      run approved actions (in the cluster, narrow permissions)
+centinela console                       web page to approve or reject actions (port 8000)
 centinela incidents list                recent incidents with MTTD / MTTR
 centinela incidents show ID             timeline: alerts, logs, resolution
 centinela incidents close ID --cause .. --resolution ..   write the postmortem
@@ -65,6 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     rej.add_argument("--by", required=True)
     rej.add_argument("--note", required=True, help="why (goes into the postmortem)")
     sub.add_parser("executor", help="run approved actions")
+    sub.add_parser("console", help="web page to approve or reject actions")
 
     incidents = sub.add_parser("incidents", help="incident history")
     isub = incidents.add_subparsers(dest="action", required=True)
@@ -103,7 +105,7 @@ def run_collect() -> int:
     configure_logging("incident-collector")
     settings = Settings.from_env()
     store = PostgresIncidentStore(make_pool(settings.database_url))
-    store.migrate(settings.reader_password)
+    store.migrate(settings.reader_password, settings.console_db_password)
     start_http_server(settings.metrics_port)
     Collector(
         PrometheusAlerts(settings.prometheus_url), store, LokiLogs(settings.loki_url)
@@ -211,6 +213,38 @@ def run_actions(args: argparse.Namespace) -> int:
     except ApprovalError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    return 0
+
+
+def run_console() -> int:
+    import os
+
+    import uvicorn
+
+    from centinela.actions.store import PostgresActionStore
+    from centinela.console.app import ConsoleConfig, create_app
+    from centinela.logs import configure_logging
+
+    configure_logging("centinela-console")
+    user = os.environ.get("CONSOLE_USER", "")
+    password = os.environ.get("CONSOLE_PASSWORD", "")
+    secret = os.environ.get("CONSOLE_SECRET_KEY", "")
+    if len(password) < 16 or len(secret) < 32 or not user:
+        print(
+            "error: set CONSOLE_USER, CONSOLE_PASSWORD (16+ chars) and CONSOLE_SECRET_KEY "
+            "(32+ chars); Terraform generates them",
+            file=sys.stderr,
+        )
+        return 1
+    pool = make_pool(Settings.from_env().database_url)
+    config = ConsoleConfig(
+        user=user,
+        password=password,
+        secret_key=secret.encode(),
+        secure_cookies=os.environ.get("CONSOLE_SECURE_COOKIES", "false").lower() == "true",
+    )
+    app = create_app(PostgresIncidentStore(pool), PostgresActionStore(pool), config)
+    uvicorn.run(app, host="0.0.0.0", port=8000, access_log=False, server_header=False)  # noqa: S104 - inside its pod
     return 0
 
 
@@ -340,6 +374,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_actions(args)
     if args.command == "executor":
         return run_executor()
+    if args.command == "console":
+        return run_console()
     print(f"centinela {__version__} - phase 7: human-approved actions (try: centinela --help)")
     return 0
 

@@ -77,6 +77,11 @@ spec:
             httpGet: { path: /readyz, port: http }
             periodSeconds: 5
             timeoutSeconds: 2
+          lifecycle:
+            # Zero-downtime rollouts: keep serving for 5 s while Kubernetes removes this pod
+            # from the Service endpoints, then shut down (incident 6, ADR-0008).
+            preStop:
+              sleep: { seconds: 5 }
           resources:
             requests: { cpu: 50m, memory: 64Mi }
             limits: { cpu: 500m, memory: 128Mi }

@@ -16,7 +16,16 @@ All notable changes to this project are documented here. The format follows
 - `centinela-executor` ServiceAccount (Terraform): `get`/`patch` on four named deployments only.
 - Audit trail of every action step in the incident timeline; Grafana "Actions" row.
 - `scripts/incident-drill.sh` asks for approval in the terminal.
+- Approval console (`centinela console`, `./scripts/k8s.sh console`): web page to approve or reject
+  actions, with the AI diagnosis. No Kubernetes rights, own database role `centinela_console`
+  (can only record decisions), Terraform-generated password, login lockout, HMAC-signed session,
+  CSRF tokens, strict Content-Security-Policy with no JavaScript. `./scripts/k8s.sh console` copies
+  the password to the clipboard and never prints it.
 - ADR-0008.
+
+### Fixed
+- Rolling updates of the shop no longer cause errors: `preStop` sleep of 5 s on catalog, orders and
+  payments. `UpstreamErrors` fires above 0.1 failed calls/s, not on any single error.
 
 ### Changed
 - `centinela` namespace: up to 8 pods.

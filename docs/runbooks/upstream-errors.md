@@ -1,6 +1,6 @@
 # UpstreamErrors
 
-**Alert:** `orders` fails calls to a dependency for 1 minute · **Severity:** warning
+**Alert:** `orders` fails more than 0.1 calls/s to a dependency for 1 minute · **Severity:** warning
 
 ## What it means
 `orders` cannot reach `catalog` or `payments` (label `upstream`): connection refused,

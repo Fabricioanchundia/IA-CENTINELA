@@ -13,3 +13,14 @@ output "grafana_admin_password" {
   value       = random_password.grafana_admin.result
   sensitive   = true
 }
+
+output "console_password" {
+  description = "Approval console login: terraform output -raw console_password"
+  value       = random_password.console_login.result
+  sensitive   = true
+}
+
+output "console_user" {
+  description = "Approval console user name (recorded as the approver)."
+  value       = var.console_user
+}

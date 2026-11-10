@@ -94,6 +94,7 @@ FROM incidents;
 """
 
 READER_ROLE = "grafana_reader"
+CONSOLE_ROLE = "centinela_console"
 
 INCIDENT_COLUMNS = (
     "id, title, category, service, severity, status, started_at, detected_at, "
@@ -141,44 +142,55 @@ class PostgresIncidentStore:
     def __init__(self, pool: Pool) -> None:
         self.pool = pool
 
-    def migrate(self, reader_password: str | None = None) -> None:
-        """Create tables and a read-only role for Grafana (idempotent)."""
+    def migrate(
+        self, reader_password: str | None = None, console_password: str | None = None
+    ) -> None:
+        """Create tables and the restricted roles (idempotent).
+
+        grafana_reader     SELECT only (dashboards)
+        centinela_console  SELECT, and may only record a human decision on an action
+                           (four columns of incident_actions) and append to the timeline
+        """
         with self.pool.connection() as conn:
             conn.execute(SCHEMA)
             if reader_password:
-                exists = conn.execute(
-                    "SELECT 1 FROM pg_roles WHERE rolname = %s", (READER_ROLE,)
-                ).fetchone()
-                verb = "ALTER" if exists else "CREATE"
-                conn.execute(
-                    sql.SQL(verb + " ROLE {} LOGIN PASSWORD {}").format(
-                        sql.Identifier(READER_ROLE), sql.Literal(reader_password)
-                    )
-                )
-                db = conn.execute("SELECT current_database() AS db").fetchone()
-                assert db is not None  # noqa: S101
-                conn.execute(
-                    sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
-                        sql.Identifier(db["db"]), sql.Identifier(READER_ROLE)
-                    )
-                )
-                conn.execute(
-                    sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(
-                        sql.Identifier(READER_ROLE)
-                    )
-                )
-                conn.execute(
-                    sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}").format(
-                        sql.Identifier(READER_ROLE)
-                    )
-                )
-                # and on tables created by later migrations
+                self._role(conn, READER_ROLE, reader_password)
                 conn.execute(
                     sql.SQL(
                         "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {}"
                     ).format(sql.Identifier(READER_ROLE))
                 )
+            if console_password:
+                role = sql.Identifier(CONSOLE_ROLE)
+                self._role(conn, CONSOLE_ROLE, console_password)
+                conn.execute(
+                    sql.SQL(
+                        "GRANT UPDATE (status, decided_by, decided_at, decision_note) "
+                        "ON incident_actions TO {}"
+                    ).format(role)
+                )
+                conn.execute(sql.SQL("GRANT INSERT ON incident_events TO {}").format(role))
+                conn.execute(
+                    sql.SQL("GRANT USAGE ON SEQUENCE incident_events_id_seq TO {}").format(role)
+                )
         log.info("incident schema ready")
+
+    @staticmethod
+    def _role(conn: Connection[DictRow], name: str, password: str) -> None:
+        """Create or update a LOGIN role with SELECT on everything (no writes)."""
+        exists = conn.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (name,)).fetchone()
+        verb = "ALTER" if exists else "CREATE"
+        role = sql.Identifier(name)
+        conn.execute(
+            sql.SQL(verb + " ROLE {} LOGIN PASSWORD {}").format(role, sql.Literal(password))
+        )
+        db = conn.execute("SELECT current_database() AS db").fetchone()
+        assert db is not None  # noqa: S101
+        conn.execute(
+            sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(sql.Identifier(db["db"]), role)
+        )
+        conn.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role))
+        conn.execute(sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}").format(role))
 
     def open_incidents(self) -> list[OpenIncident]:
         with self.pool.connection() as conn:

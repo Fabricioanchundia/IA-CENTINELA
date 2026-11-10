@@ -49,7 +49,9 @@ groups:
           runbook_url: "https://github.com/Fabricioanchundia/IA-CENTINELA/blob/main/docs/runbooks/high-latency.md"
 
       - alert: UpstreamErrors
-        expr: sum by (upstream) (rate(shop_upstream_errors_total{job="shop"}[2m])) > 0
+        # > 0.1/s (6+ failed calls a minute): a dependency is really failing. A handful of
+        # errors during a rollout must not page anyone (incident 6, ADR-0008).
+        expr: sum by (upstream) (rate(shop_upstream_errors_total{job="shop"}[2m])) > 0.1
         for: 1m
         labels:
           severity: warning

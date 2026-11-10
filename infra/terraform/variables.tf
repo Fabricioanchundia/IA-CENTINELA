@@ -21,3 +21,9 @@ variable "postgres_db" {
   type        = string
   default     = "shop"
 }
+
+variable "console_user" {
+  description = "User name for the approval console; it is recorded as the approver."
+  type        = string
+  default     = "fabricio"
+}
