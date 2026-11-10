@@ -161,3 +161,35 @@ def test_console_role_can_only_record_decisions(store: PostgresIncidentStore) ->
     for statement in forbidden:
         with psycopg.connect(url) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
             conn.execute(statement)
+
+
+def test_mcp_role_can_only_propose(store: PostgresIncidentStore) -> None:
+    import psycopg
+
+    from centinela.actions.policy import check
+    from centinela.actions.store import PostgresActionStore
+    from centinela.incidents.store import MCP_ROLE
+
+    password = uuid.uuid4().hex
+    store.migrate(mcp_password=password)
+    incident_id = store.create((SERVICE_DOWN,), T0)
+    url = f"user={MCP_ROLE} password={password}"
+    mcp_store = PostgresActionStore(make_pool(url))
+    action = mcp_store.propose(
+        incident_id, check("restart", "payments"), "evidence", "mcp:test", datetime.now(UTC)
+    )
+    assert action is not None and action.status == "pending"  # always starts pending
+
+    forbidden = [
+        # a proposal that arrives already approved
+        "INSERT INTO incident_actions (incident_id, kind, target, reason, proposed_by, "
+        "proposed_at, expires_at, status) VALUES ((SELECT max(id) FROM incidents), 'restart', "
+        "'orders', 'x', 'x', "
+        "now(), now(), 'approved')",
+        "UPDATE incident_actions SET status = 'approved'",  # approving one
+        "DELETE FROM incident_actions",
+        "UPDATE incidents SET root_cause = 'x'",
+    ]
+    for statement in forbidden:
+        with psycopg.connect(url) as conn, pytest.raises(psycopg.errors.InsufficientPrivilege):
+            conn.execute(statement)

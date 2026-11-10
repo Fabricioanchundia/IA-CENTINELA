@@ -15,6 +15,7 @@ class Settings:
     database_url: str  # empty: libpq PG* variables
     reader_password: str | None
     console_db_password: str | None
+    mcp_db_password: str | None
     poll_interval_s: float
     metrics_port: int
     ollama_url: str
@@ -35,6 +36,7 @@ class Settings:
             database_url=os.environ.get("DATABASE_URL", ""),
             reader_password=os.environ.get("INCIDENTS_DB_READER_PASSWORD") or None,
             console_db_password=os.environ.get("CONSOLE_DB_PASSWORD") or None,
+            mcp_db_password=os.environ.get("MCP_DB_PASSWORD") or None,
             poll_interval_s=float(os.environ.get("POLL_INTERVAL_S", "15")),
             metrics_port=int(os.environ.get("METRICS_PORT", "9100")),
             ollama_url=os.environ.get("OLLAMA_URL", "http://localhost:11434"),

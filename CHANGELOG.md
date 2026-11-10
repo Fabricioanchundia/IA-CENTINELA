@@ -6,7 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-10
+
+The agent can now fix things, only with a human's approval: from the terminal, a web console or
+another AI assistant over MCP, through a separate executor with the smallest possible permissions.
+
 ### Added
+- MCP server (`centinela mcp`, Deployment `centinela-mcp`): tools `list_incidents`, `get_incident`,
+  `list_actions` (read-only) and `propose_action` (pending only). No approve or execute tool. Own
+  database role `centinela_mcp` that can insert proposals but not their status.
+  `./scripts/k8s.sh mcp` prints the client configuration; `scripts/mcp-check.py` smoke test.
+  ADR-0009.
+- The agent loads the model into the GPU as soon as a new incident appears (warm-up), during
+  its grouping delay.
 - Human-approved actions: after a valid diagnosis the agent proposes `scale_up` or `restart`
   (pending); a human approves or rejects it (`centinela actions | approve | reject`); a separate
   `centinela-executor` runs it and verifies the result.
@@ -24,11 +36,15 @@ All notable changes to this project are documented here. The format follows
 - ADR-0008.
 
 ### Fixed
+- `ServiceDown` is evaluated per service (`max by (service) (up) == 0`), not per pod: a new pod
+  still starting during a rollout no longer reports the whole service as down (incident 8).
+- The agent no longer proposes an action for an incident that resolved while the model was
+  answering (incident 8).
 - Rolling updates of the shop no longer cause errors: `preStop` sleep of 5 s on catalog, orders and
   payments. `UpstreamErrors` fires above 0.1 failed calls/s, not on any single error.
 
 ### Changed
-- `centinela` namespace: up to 8 pods.
+- `centinela` namespace: up to 8 pods and 1.5 GiB of memory limits.
 
 ## [0.5.0] - 2026-11-09
 

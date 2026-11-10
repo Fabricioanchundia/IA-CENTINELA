@@ -15,7 +15,7 @@ locals {
     }
     centinela = {
       purpose      = "agent"
-      limit_memory = "1Gi" # incident DB, collector, agent, executor, console (~800 Mi limits)
+      limit_memory = "1536Mi" # DB, collector, agent, executor, console, mcp (~990 Mi limits)
       pods         = 8
     }
   }

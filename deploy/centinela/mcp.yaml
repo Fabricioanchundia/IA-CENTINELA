@@ -1,0 +1,56 @@
+# MCP server (Phase 7c). An MCP client starts one server process per session through
+# `kubectl exec -i deploy/centinela-mcp -c mcp -- centinela mcp` (stdio), so this pod only
+# keeps an idle container with the code and the `centinela_mcp` database credentials, which
+# can read and insert PROPOSALS only (never approve). No Kubernetes token, no Service.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: centinela-mcp
+  labels:
+    app.kubernetes.io/name: centinela-mcp
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: centinela-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: centinela-mcp
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: centinela-agent:dev
+          imagePullPolicy: IfNotPresent # imported with `k3d image import`
+          command: ["sleep", "infinity"] # sessions run as `kubectl exec ... centinela mcp`
+          env:
+            - name: PGHOST
+              value: incidents-db
+            - name: MCP_CLIENT_NAME
+              value: kubectl-exec
+          envFrom:
+            - secretRef:
+                name: mcp-credentials # role centinela_mcp: read + propose only
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 250m, memory: 160Mi } # one MCP session (~50 MiB) at a time
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

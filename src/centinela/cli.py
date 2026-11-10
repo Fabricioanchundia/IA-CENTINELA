@@ -8,6 +8,7 @@ centinela approve ID --by NAME          approve an action; the executor runs it
 centinela reject ID --by NAME --note .. reject an action, with the reason
 centinela executor                      run approved actions (in the cluster, narrow permissions)
 centinela console                       web page to approve or reject actions (port 8000)
+centinela mcp                           MCP server on stdio: read incidents, propose actions
 centinela incidents list                recent incidents with MTTD / MTTR
 centinela incidents show ID             timeline: alerts, logs, resolution
 centinela incidents close ID --cause .. --resolution ..   write the postmortem
@@ -67,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     rej.add_argument("--note", required=True, help="why (goes into the postmortem)")
     sub.add_parser("executor", help="run approved actions")
     sub.add_parser("console", help="web page to approve or reject actions")
+    sub.add_parser("mcp", help="MCP server (stdio): read incidents, propose actions")
 
     incidents = sub.add_parser("incidents", help="incident history")
     isub = incidents.add_subparsers(dest="action", required=True)
@@ -105,7 +107,7 @@ def run_collect() -> int:
     configure_logging("incident-collector")
     settings = Settings.from_env()
     store = PostgresIncidentStore(make_pool(settings.database_url))
-    store.migrate(settings.reader_password, settings.console_db_password)
+    store.migrate(settings.reader_password, settings.console_db_password, settings.mcp_db_password)
     start_http_server(settings.metrics_port)
     Collector(
         PrometheusAlerts(settings.prometheus_url), store, LokiLogs(settings.loki_url)
@@ -248,6 +250,25 @@ def run_console() -> int:
     return 0
 
 
+def run_mcp() -> int:
+    import logging
+    import os
+
+    from centinela.actions.store import PostgresActionStore
+    from centinela.mcp_server import build_server
+
+    # stdout carries the MCP protocol: logs must go to stderr
+    logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
+    pool = make_pool(Settings.from_env().database_url)
+    server = build_server(
+        PostgresIncidentStore(pool),
+        PostgresActionStore(pool),
+        client=os.environ.get("MCP_CLIENT_NAME", "mcp-client")[:40],
+    )
+    server.run("stdio")
+    return 0
+
+
 def run_executor() -> int:
     from prometheus_client import start_http_server
 
@@ -376,7 +397,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_executor()
     if args.command == "console":
         return run_console()
-    print(f"centinela {__version__} - phase 7: human-approved actions (try: centinela --help)")
+    if args.command == "mcp":
+        return run_mcp()
+    print(f"centinela {__version__} - phase 7: approved actions + MCP (try: centinela --help)")
     return 0
 
 

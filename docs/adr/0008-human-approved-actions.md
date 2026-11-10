@@ -72,6 +72,14 @@ First approval from the browser (incident 9): the agent proposed `scale payments
 
 `./scripts/k8s.sh up` restarted payments and opened incident 6 (`UpstreamErrors`, 49 s): during a rolling update the old pod keeps receiving requests for a moment after it starts shutting down, and the alert fired on **any** failed call. Two fixes: the shop containers now wait 5 s in a `preStop` hook (the endpoint is removed before the process stops), and `UpstreamErrors` needs more than 0.1 failed calls per second, with a `promtool` test showing that a rollout blip (0.04/s) no longer fires while a real outage (1.5/s) does.
 
+## Incident 8: what a rollout taught (Phase 7c fixes)
+
+During `./scripts/k8s.sh up` (every shop deployment restarted at once) incident 8 opened as "payments is down", with `ServiceDown` also on catalog and orders, and resolved itself 66 s later. Three findings:
+
+- **`ServiceDown` was per pod, not per service.** Its labels carried `pod` and `instance`: a *new* pod discovered by Prometheus before it listened had `up == 0` for over a minute while the *old* pod still served every request. A service is down only when none of its targets answers, so the rule is now `max by (job, service) (up) == 0` (plus the "no target at all" branch). A `promtool` test with one healthy and one starting pod fails on the old rule and passes on the new one.
+- **The agent proposed a fix for an incident that had already resolved.** It started 1 s before the alerts cleared and the model took 140 s; the proposal arrived 2.5 minutes after the incident closed (it expired unused, and the executor would have skipped it as "not needed"). The agent now re-reads the incident after the model answers and proposes nothing if it is no longer open.
+- **A cold model costs minutes.** Ollama unloads an idle model from the GPU; loading it during the diagnosis took most of those 140 s. The agent now asks Ollama to load the model as soon as it sees a new incident, during the 60-second grouping delay it waits anyway.
+
 ## Consequences
 
 - MTTR can now drop to "time for a human to read one line and press approve". The incident drill asks for the approval in the terminal and measures it.

@@ -95,6 +95,7 @@ FROM incidents;
 
 READER_ROLE = "grafana_reader"
 CONSOLE_ROLE = "centinela_console"
+MCP_ROLE = "centinela_mcp"
 
 INCIDENT_COLUMNS = (
     "id, title, category, service, severity, status, started_at, detected_at, "
@@ -143,13 +144,18 @@ class PostgresIncidentStore:
         self.pool = pool
 
     def migrate(
-        self, reader_password: str | None = None, console_password: str | None = None
+        self,
+        reader_password: str | None = None,
+        console_password: str | None = None,
+        mcp_password: str | None = None,
     ) -> None:
         """Create tables and the restricted roles (idempotent).
 
         grafana_reader     SELECT only (dashboards)
         centinela_console  SELECT, and may only record a human decision on an action
                            (four columns of incident_actions) and append to the timeline
+        centinela_mcp      SELECT, and may only insert a PROPOSAL: the status column is not
+                           granted, so it always starts as 'pending'
         """
         with self.pool.connection() as conn:
             conn.execute(SCHEMA)
@@ -172,6 +178,22 @@ class PostgresIncidentStore:
                 conn.execute(sql.SQL("GRANT INSERT ON incident_events TO {}").format(role))
                 conn.execute(
                     sql.SQL("GRANT USAGE ON SEQUENCE incident_events_id_seq TO {}").format(role)
+                )
+            if mcp_password:
+                role = sql.Identifier(MCP_ROLE)
+                self._role(conn, MCP_ROLE, mcp_password)
+                conn.execute(
+                    sql.SQL(
+                        "GRANT INSERT (incident_id, kind, target, params, reason, proposed_by, "
+                        "proposed_at, expires_at) ON incident_actions TO {}"
+                    ).format(role)
+                )
+                conn.execute(sql.SQL("GRANT INSERT ON incident_events TO {}").format(role))
+                conn.execute(
+                    sql.SQL(
+                        "GRANT USAGE ON SEQUENCE incident_events_id_seq, incident_actions_id_seq "
+                        "TO {}"
+                    ).format(role)
                 )
         log.info("incident schema ready")
 

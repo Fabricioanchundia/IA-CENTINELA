@@ -68,6 +68,7 @@ resource "kubernetes_secret_v1" "incidents_db" {
     PGDATABASE                   = "centinela"
     INCIDENTS_DB_READER_PASSWORD = random_password.incidents_reader.result
     CONSOLE_DB_PASSWORD          = random_password.console_db.result # migrate sets the role
+    MCP_DB_PASSWORD              = random_password.mcp_db.result
   }
 }
 
@@ -114,5 +115,26 @@ resource "kubernetes_secret_v1" "console" {
     PGUSER             = "centinela_console"
     PGPASSWORD         = random_password.console_db.result
     PGDATABASE         = "centinela"
+  }
+}
+
+# ---------------------------------------------------------------------------------------
+# MCP server (Phase 7c): its own database role that can read and insert PROPOSALS only.
+# ---------------------------------------------------------------------------------------
+resource "random_password" "mcp_db" {
+  length  = 32
+  special = false
+}
+
+resource "kubernetes_secret_v1" "mcp" {
+  metadata {
+    name      = "mcp-credentials"
+    namespace = kubernetes_namespace_v1.this["centinela"].metadata[0].name
+  }
+
+  data = {
+    PGUSER     = "centinela_mcp"
+    PGPASSWORD = random_password.mcp_db.result
+    PGDATABASE = "centinela"
   }
 }

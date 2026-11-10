@@ -494,3 +494,42 @@ def test_upstream_errors_count_as_a_symptom_of_the_caller(runbooks: Path) -> Non
     d, errors = validate(good_answer(evidence=["E1"], symptoms=["orders", "catalog"]), ev)
     assert errors == [] and d is not None
     assert d.symptoms == ["orders"] and d.dropped_symptoms == ["catalog"]
+
+
+def test_model_is_warmed_while_waiting_and_only_once(runbooks: Path) -> None:
+    store = make_store()
+    now = {"t": DETECTED + timedelta(seconds=10)}
+
+    class WarmLlm(FakeLlm):
+        warms = 0
+
+        def warm(self) -> None:
+            WarmLlm.warms += 1
+
+    llm = WarmLlm([good_answer()])
+    loop = AgentLoop(
+        store,
+        Diagnoser(store, builder(store, runbooks), llm),
+        timedelta(seconds=60),
+        clock=lambda: now["t"],
+    )
+    assert loop.cycle() == [] and WarmLlm.warms == 1
+    assert loop.cycle() == [] and WarmLlm.warms == 1  # not on every poll
+    now["t"] = DETECTED + timedelta(seconds=61)
+    assert loop.cycle() == [1]
+
+
+def test_ollama_warm_up_request() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append({"path": request.url.path, **json.loads(request.content)})
+        return httpx.Response(200, json={"done": True})
+
+    chat = OllamaChat(
+        "http://o",
+        "qwen3:8b",
+        client=httpx.Client(base_url="http://o", transport=httpx.MockTransport(handler)),
+    )
+    chat.warm()
+    assert seen == [{"path": "/api/generate", "model": "qwen3:8b", "keep_alive": "10m"}]

@@ -7,7 +7,7 @@ from centinela.actions.models import Action
 from centinela.actions.policy import PolicyError, check
 from centinela.actions.store import ActionStore
 
-MACHINE_NAMES = {"agent", "centinela-agent", "centinela", "executor", "system"}
+MACHINE_NAMES = {"agent", "centinela-agent", "centinela", "executor", "system", "mcp"}
 NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._@-]{1,63}$")
 
 
