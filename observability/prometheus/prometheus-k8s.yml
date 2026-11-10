@@ -67,3 +67,5 @@ scrape_configs:
         labels: { service: incident-collector }
       - targets: ["centinela-agent.centinela:9100"]
         labels: { service: centinela-agent }
+      - targets: ["centinela-executor.centinela:9100"]
+        labels: { service: centinela-executor }

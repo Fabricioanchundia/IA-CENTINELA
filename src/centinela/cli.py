@@ -3,6 +3,10 @@
 centinela collect                       run the incident collector (in the cluster)
 centinela agent                         diagnose new incidents automatically (in the cluster)
 centinela diagnose ID [--dry-run]       diagnose one incident now (--dry-run: show the prompt)
+centinela actions [--all]               actions waiting for a human (--all: history too)
+centinela approve ID --by NAME          approve an action; the executor runs it
+centinela reject ID --by NAME --note .. reject an action, with the reason
+centinela executor                      run approved actions (in the cluster, narrow permissions)
 centinela incidents list                recent incidents with MTTD / MTTR
 centinela incidents show ID             timeline: alerts, logs, resolution
 centinela incidents close ID --cause .. --resolution ..   write the postmortem
@@ -13,7 +17,7 @@ import argparse
 import json
 import sys
 from collections.abc import Sequence
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from centinela import __version__
@@ -22,6 +26,8 @@ from centinela.incidents.models import Incident
 from centinela.incidents.store import PostgresIncidentStore, make_pool
 
 if TYPE_CHECKING:
+    from centinela.actions.models import Action
+    from centinela.actions.store import PostgresActionStore
     from centinela.agent.diagnosis import Diagnoser
 
 
@@ -47,6 +53,18 @@ def build_parser() -> argparse.ArgumentParser:
     diag.add_argument("id", type=int)
     diag.add_argument("--dry-run", action="store_true", help="print the evidence, no model call")
     diag.add_argument("--no-store", action="store_true", help="do not save the result")
+    acts = sub.add_parser("actions", help="actions proposed by the agent")
+    acts.add_argument("--all", action="store_true", help="include decided and finished ones")
+    acts.add_argument("--limit", type=int, default=20)
+    appr = sub.add_parser("approve", help="approve a pending action")
+    appr.add_argument("id", type=int)
+    appr.add_argument("--by", required=True, help="your name (recorded in the audit trail)")
+    appr.add_argument("--note", default=None)
+    rej = sub.add_parser("reject", help="reject a pending action")
+    rej.add_argument("id", type=int)
+    rej.add_argument("--by", required=True)
+    rej.add_argument("--note", required=True, help="why (goes into the postmortem)")
+    sub.add_parser("executor", help="run approved actions")
 
     incidents = sub.add_parser("incidents", help="incident history")
     isub = incidents.add_subparsers(dest="action", required=True)
@@ -93,7 +111,7 @@ def run_collect() -> int:
     return 0
 
 
-def _diagnoser(settings: Settings) -> "Diagnoser":
+def _diagnoser(settings: Settings, store: PostgresIncidentStore | None = None) -> "Diagnoser":
     from pathlib import Path
 
     from centinela.agent.diagnosis import Diagnoser
@@ -102,7 +120,7 @@ def _diagnoser(settings: Settings) -> "Diagnoser":
     from centinela.agent.llm import OllamaChat
     from centinela.incidents.sources import PrometheusQuery
 
-    store = PostgresIncidentStore(make_pool(settings.database_url))
+    store = store or PostgresIncidentStore(make_pool(settings.database_url))
     builder = EvidenceBuilder(
         store,
         PrometheusQuery(settings.prometheus_url),
@@ -129,11 +147,87 @@ def run_agent() -> int:
 
     configure_logging("centinela-agent")
     settings = Settings.from_env()
-    diagnoser = _diagnoser(settings)
+    store = PostgresIncidentStore(make_pool(settings.database_url))
+    diagnoser = _diagnoser(settings, store)
     start_http_server(settings.metrics_port)
-    AgentLoop(diagnoser.store, diagnoser, timedelta(seconds=settings.diagnose_delay_s)).run_forever(
-        settings.poll_interval_s
-    )
+    actions = None
+    if settings.propose_actions:
+        from centinela.actions.store import PostgresActionStore
+
+        actions = PostgresActionStore(store.pool)
+    AgentLoop(
+        store,
+        diagnoser,
+        timedelta(seconds=settings.diagnose_delay_s),
+        actions=actions,
+    ).run_forever(settings.poll_interval_s)
+    return 0
+
+
+def _actions() -> "PostgresActionStore":
+    from centinela.actions.store import PostgresActionStore
+
+    return PostgresActionStore(make_pool(Settings.from_env().database_url))
+
+
+def print_actions(rows: list["Action"]) -> None:
+    print(f"{'ID':>4}  {'INC':>4}  {'STATUS':9}  {'PROPOSED':8}  {'EXPIRES':8}  ACTION")
+    pad = " " * 44
+    for a in rows:
+        proposed = a.proposed_at.astimezone(UTC)
+        expires = a.expires_at.astimezone(UTC)
+        print(
+            f"{a.id:>4}  {a.incident_id:>4}  {a.status:9}  {proposed:%H:%M:%S}  "
+            f"{expires:%H:%M:%S}  {a.describe()}"
+        )
+        print(f"{pad}why: {a.reason}")
+        if a.decided_by:
+            note = f": {a.decision_note}" if a.decision_note else ""
+            verb = "rejected" if a.status == "rejected" else "approved"  # the human decision
+            print(f"{pad}{verb} by {a.decided_by}{note}")
+        if a.result:
+            print(f"{pad}result: {a.result}")
+
+
+def run_actions(args: argparse.Namespace) -> int:
+    from centinela.actions.approvals import ApprovalError, approve, reject
+
+    store = _actions()
+    now = datetime.now(UTC)
+    if args.command == "actions":
+        rows = store.recent(args.limit, open_only=not args.all)
+        if not rows:
+            print("no actions yet" if args.all else "no actions waiting for a decision")
+            return 0
+        print_actions(rows)
+        return 0
+    try:
+        if args.command == "approve":
+            action = approve(store, args.id, args.by, now, args.note)
+            print(f"action {action.id} approved by {action.decided_by}: the executor runs it now")
+        else:
+            action = reject(store, args.id, args.by, args.note, now)
+            print(f"action {action.id} rejected by {action.decided_by}")
+    except ApprovalError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def run_executor() -> int:
+    from prometheus_client import start_http_server
+
+    from centinela.actions.executor import Executor, KubeShopWriter
+    from centinela.logs import configure_logging
+
+    configure_logging("centinela-executor")
+    settings = Settings.from_env()
+    writer = KubeShopWriter.in_cluster(settings.shop_namespace)
+    if writer is None:
+        print("error: the executor only runs inside the cluster", file=sys.stderr)
+        return 1
+    start_http_server(settings.metrics_port)
+    Executor(_actions(), writer, dry_run=settings.executor_dry_run).run_forever(5)
     return 0
 
 
@@ -203,6 +297,15 @@ def run_incidents(args: argparse.Namespace) -> int:
                 print(f"{at:%H:%M:%S}  diagnosis")
                 print_diagnosis(payload)
                 continue
+            if str(event["kind"]).startswith("action_"):
+                at = event["at"].astimezone(UTC)
+                extra = payload.get("result") or payload.get("note") or ""
+                print(
+                    f"{at:%H:%M:%S}  {event['kind']:18}  #{payload.get('action_id')} "
+                    f"{payload.get('action')} (by {payload.get('by')})"
+                    + (f": {extra}" if extra else "")
+                )
+                continue
             if event["kind"] == "logs":
                 payload = {"service": payload.get("service"), "lines": len(payload["lines"])}
             at = event["at"].astimezone(UTC)
@@ -233,7 +336,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_agent()
     if args.command == "diagnose":
         return run_diagnose(args)
-    print(f"centinela {__version__} - phase 6: AI diagnosis (read-only) (try: centinela --help)")
+    if args.command in {"actions", "approve", "reject"}:
+        return run_actions(args)
+    if args.command == "executor":
+        return run_executor()
+    print(f"centinela {__version__} - phase 7: human-approved actions (try: centinela --help)")
     return 0
 
 

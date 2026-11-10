@@ -6,6 +6,21 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Human-approved actions: after a valid diagnosis the agent proposes `scale_up` or `restart`
+  (pending); a human approves or rejects it (`centinela actions | approve | reject`); a separate
+  `centinela-executor` runs it and verifies the result.
+- Policy in code: allowlist of actions and targets (never PostgreSQL), 1–3 replicas, one open
+  action per incident, 15-minute expiry, max 3 executions per hour, re-check before acting,
+  `EXECUTOR_DRY_RUN` kill switch.
+- `centinela-executor` ServiceAccount (Terraform): `get`/`patch` on four named deployments only.
+- Audit trail of every action step in the incident timeline; Grafana "Actions" row.
+- `scripts/incident-drill.sh` asks for approval in the terminal.
+- ADR-0008.
+
+### Changed
+- `centinela` namespace: up to 8 pods.
+
 ## [0.5.0] - 2026-11-09
 
 The agent diagnoses incidents by itself with a local model, read-only. First drill: correct root

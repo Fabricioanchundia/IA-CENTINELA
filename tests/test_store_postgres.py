@@ -79,3 +79,49 @@ def test_alerts_and_similar_incidents(store: PostgresIncidentStore) -> None:
     store.close(first, "payments scaled to 0", "scaled back")
     [past] = store.similar(incident)
     assert past.id == first and past.root_cause == "payments scaled to 0"
+
+
+def test_action_lifecycle_and_audit(store: PostgresIncidentStore) -> None:
+    from centinela.actions.approvals import ApprovalError, approve
+    from centinela.actions.policy import PENDING_TTL, check
+    from centinela.actions.store import PostgresActionStore
+
+    actions = PostgresActionStore(store.pool)
+    incident_id = store.create((SERVICE_DOWN,), T0)
+    action = actions.propose(
+        incident_id, check("scale_up", "payments"), "down", "centinela-agent", T0
+    )
+    assert action is not None and action.status == "pending" and action.params == {"replicas": 1}
+    assert actions.propose(incident_id, check("restart", "orders"), "x", "agent", T0) is None
+
+    approved = approve(actions, action.id, "Fabricio", T0 + timedelta(minutes=1))
+    assert approved.status == "approved"
+    with pytest.raises(ApprovalError, match="already approved"):
+        approve(actions, action.id, "Ana", T0 + timedelta(minutes=2))
+    assert [a.id for a in actions.approved()] == [action.id]
+
+    done = actions.finish(action.id, "executed", "0/0 -> 1/1", T0 + timedelta(minutes=2))
+    assert done is not None and done.status == "executed"
+    assert actions.executed_since(T0) == 1
+    assert actions.finish(action.id, "failed", "again", T0) is None  # final states are final
+
+    later = T0 + timedelta(minutes=3)
+    late = actions.propose(incident_id, check("restart", "orders"), "x", "centinela-agent", later)
+    assert late is not None
+    [expired] = actions.expire(later + PENDING_TTL)
+    assert expired.id == late.id and expired.status == "expired"
+
+    kinds = [e["kind"] for e in store.events(incident_id) if e["kind"].startswith("action_")]
+    assert kinds == [
+        "action_proposed",
+        "action_approved",
+        "action_executed",
+        "action_proposed",
+        "action_expired",
+    ]
+    with store.pool.connection() as conn:
+        row = conn.execute(
+            "SELECT has_table_privilege('grafana_reader', 'incident_actions', 'SELECT') AS r, "
+            "has_table_privilege('grafana_reader', 'incident_actions', 'UPDATE') AS w"
+        ).fetchone()
+    assert row is not None and row["r"] is True and row["w"] is False

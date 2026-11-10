@@ -61,6 +61,30 @@ CREATE TABLE IF NOT EXISTS incident_events (
 );
 CREATE INDEX IF NOT EXISTS incident_events_incident_idx ON incident_events (incident_id, at);
 
+-- Remediation actions (Phase 7): proposed by the agent, decided by a human
+CREATE TABLE IF NOT EXISTS incident_actions (
+    id            BIGSERIAL PRIMARY KEY,
+    incident_id   BIGINT NOT NULL REFERENCES incidents (id) ON DELETE CASCADE,
+    kind          TEXT NOT NULL,
+    target        TEXT NOT NULL,
+    params        JSONB NOT NULL DEFAULT '{}',
+    reason        TEXT NOT NULL,
+    proposed_by   TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN
+                  ('pending', 'approved', 'rejected', 'executed', 'failed', 'expired', 'skipped')),
+    proposed_at   TIMESTAMPTZ NOT NULL,
+    expires_at    TIMESTAMPTZ NOT NULL,
+    decided_by    TEXT,
+    decided_at    TIMESTAMPTZ,
+    decision_note TEXT,
+    executed_at   TIMESTAMPTZ,
+    result        TEXT
+);
+-- At most one open (pending or approved) action per incident
+CREATE UNIQUE INDEX IF NOT EXISTS incident_actions_one_open
+    ON incident_actions (incident_id) WHERE status IN ('pending', 'approved');
+CREATE INDEX IF NOT EXISTS incident_actions_status_idx ON incident_actions (status);
+
 CREATE OR REPLACE VIEW incident_metrics AS
 SELECT id, title, category, service, severity, status, source,
        started_at, detected_at, resolved_at, root_cause, resolution,
@@ -147,6 +171,12 @@ class PostgresIncidentStore:
                     sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {}").format(
                         sql.Identifier(READER_ROLE)
                     )
+                )
+                # and on tables created by later migrations
+                conn.execute(
+                    sql.SQL(
+                        "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {}"
+                    ).format(sql.Identifier(READER_ROLE))
                 )
         log.info("incident schema ready")
 

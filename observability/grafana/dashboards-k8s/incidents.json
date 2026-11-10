@@ -1,7 +1,7 @@
 {
   "uid": "centinela-incidents",
   "title": "Centinela · Incidents",
-  "description": "Incident history recorded by the collector (MTTD, MTTR, postmortems) and the AI agent diagnoses.",
+  "description": "Incident history (MTTD, MTTR, postmortems), AI diagnoses and human-approved actions.",
   "tags": [
     "centinela",
     "sre",
@@ -10,7 +10,7 @@
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 2,
+  "version": 3,
   "refresh": "30s",
   "time": {
     "from": "now-7d",
@@ -969,6 +969,360 @@
                         "color": "red",
                         "index": 1,
                         "text": "NO"
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 16,
+      "type": "row",
+      "title": "Actions (Phase 7: proposed by the agent, approved by a human)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "panels": []
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Waiting for approval",
+      "description": "Actions proposed by the agent that nobody approved or rejected yet (they expire after 15 min).",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 37
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT count(*) AS pending FROM incident_actions WHERE status = 'pending'",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Executed",
+      "description": "Approved by a human, run by the executor and verified.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 37
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT count(*) AS executed FROM incident_actions WHERE status = 'executed' AND $__timeFilter(proposed_at)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "Rejected or expired",
+      "description": "Proposals a human turned down, or nobody answered in time.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 37
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT count(*) AS n FROM incident_actions WHERE status IN ('rejected', 'expired') AND $__timeFilter(proposed_at)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Failed",
+      "description": "Blocked by policy or rate limit, Kubernetes error, or not healthy after the change.",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 37
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT count(*) AS failed FROM incident_actions WHERE status = 'failed' AND $__timeFilter(proposed_at)",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "noValue": "-",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Actions (audit trail)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "incidents"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "incidents"
+          },
+          "rawSql": "SELECT id, incident_id AS incident, proposed_at AS proposed, status, kind || ' ' || target AS action, proposed_by, decided_by, decision_note AS note, round(EXTRACT(EPOCH FROM decided_at - proposed_at)) AS decision_s, result, reason FROM incident_actions WHERE $__timeFilter(proposed_at) ORDER BY id DESC LIMIT 50",
+          "format": "table",
+          "editorMode": "code",
+          "rawQuery": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "decision_s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "pending": {
+                        "color": "yellow",
+                        "index": 0
+                      },
+                      "approved": {
+                        "color": "blue",
+                        "index": 1
+                      },
+                      "executed": {
+                        "color": "green",
+                        "index": 2
+                      },
+                      "rejected": {
+                        "color": "orange",
+                        "index": 3
+                      },
+                      "expired": {
+                        "color": "orange",
+                        "index": 4
+                      },
+                      "failed": {
+                        "color": "red",
+                        "index": 5
+                      },
+                      "skipped": {
+                        "color": "text",
+                        "index": 6
                       }
                     }
                   }

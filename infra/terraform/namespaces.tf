@@ -15,8 +15,8 @@ locals {
     }
     centinela = {
       purpose      = "agent"
-      limit_memory = "1Gi" # incident DB + collector (~384 Mi) now, the AI agent in Phase 6
-      pods         = 5
+      limit_memory = "1Gi" # incident DB, collector, agent, executor, console (~800 Mi limits)
+      pods         = 8
     }
   }
 }

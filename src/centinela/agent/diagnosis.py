@@ -20,6 +20,7 @@ from centinela.agent.evidence import (
     COMPONENTS,
     Evidence,
     EvidenceBuilder,
+    alert_components,
 )
 from centinela.agent.llm import JsonChat, LlmError, LlmReply
 from centinela.incidents.store import IncidentStore
@@ -183,7 +184,7 @@ def validate(raw: dict[str, Any], evidence: Evidence) -> tuple[Diagnosis | None,
             errors.append(f"none of the cited items mention {d.root_cause_service}")
     # A symptom must show up in the evidence as its own alert. Unsupported ones are removed
     # (and recorded), not a reason to reject the whole answer: the root cause is what matters.
-    alerted = {a.service for a in evidence.alerts if a.service}
+    alerted = {c for a in evidence.alerts for c in alert_components(a)}
     symptoms = [s for s in dict.fromkeys(d.symptoms) if s != d.root_cause_service]
     d.symptoms = [s for s in symptoms if s in alerted]
     d.dropped_symptoms = [s for s in symptoms if s not in alerted]

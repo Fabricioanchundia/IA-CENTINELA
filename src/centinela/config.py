@@ -4,6 +4,10 @@ import os
 from dataclasses import dataclass
 
 
+def _flag(name: str, default: str) -> bool:
+    return os.environ.get(name, default).strip().lower() in {"1", "true", "yes"}
+
+
 @dataclass(frozen=True)
 class Settings:
     prometheus_url: str
@@ -19,6 +23,8 @@ class Settings:
     diagnose_delay_s: float
     runbooks_dir: str
     shop_namespace: str
+    propose_actions: bool
+    executor_dry_run: bool
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -32,8 +38,10 @@ class Settings:
             ollama_url=os.environ.get("OLLAMA_URL", "http://localhost:11434"),
             ollama_model=os.environ.get("OLLAMA_MODEL", "qwen3:8b"),
             ollama_num_ctx=int(os.environ.get("OLLAMA_NUM_CTX", "4096")),
-            ollama_think=os.environ.get("OLLAMA_THINK", "false").lower() in {"1", "true", "yes"},
+            ollama_think=_flag("OLLAMA_THINK", "false"),
             diagnose_delay_s=float(os.environ.get("DIAGNOSE_DELAY_S", "60")),
             runbooks_dir=os.environ.get("RUNBOOKS_DIR", "docs/runbooks"),
             shop_namespace=os.environ.get("SHOP_NAMESPACE", "shop"),
+            propose_actions=_flag("PROPOSE_ACTIONS", "true"),
+            executor_dry_run=_flag("EXECUTOR_DRY_RUN", "false"),
         )

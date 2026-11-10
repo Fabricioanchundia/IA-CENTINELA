@@ -1,0 +1,90 @@
+# Centinela executor (Phase 7): runs ONLY actions a human approved. Its ServiceAccount can
+# get/patch four named shop deployments and nothing else (infra/terraform/rbac.tf). No
+# Service for traffic, nothing can call it: it only reads approved actions from the database.
+apiVersion: v1
+kind: Service
+metadata:
+  name: centinela-executor
+spec:
+  selector:
+    app.kubernetes.io/name: centinela-executor
+  ports:
+    - name: metrics # Prometheus only
+      port: 9100
+      targetPort: metrics
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: centinela-executor
+  labels:
+    app.kubernetes.io/name: centinela-executor
+spec:
+  replicas: 1 # one executor: actions run one at a time, never twice
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: centinela-executor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: centinela-executor
+    spec:
+      serviceAccountName: centinela-executor # get/patch on catalog, orders, payments, redis
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.37
+          command: ["sh", "-c", "until nc -z incidents-db 5432; do echo waiting for incidents-db; sleep 2; done"]
+          resources:
+            requests: { cpu: 10m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 16Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: executor
+          image: centinela-agent:dev
+          imagePullPolicy: IfNotPresent # imported with `k3d image import`
+          command: ["centinela", "executor"]
+          env:
+            - name: PGHOST
+              value: incidents-db
+            - name: SHOP_NAMESPACE
+              value: shop
+            # "true" = record what it would do, change nothing (kill switch)
+            - name: EXECUTOR_DRY_RUN
+              value: "false"
+          envFrom:
+            - secretRef:
+                name: incidents-db-credentials
+          ports:
+            - name: metrics
+              containerPort: 9100
+          livenessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests: { cpu: 10m, memory: 48Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
