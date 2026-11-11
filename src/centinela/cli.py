@@ -13,6 +13,7 @@ centinela redteam                       prompt-injection attacks vs the agent (n
 centinela eval snapshot ID ...          turn a chaos-drill incident into an evaluation case
 centinela eval synthesize               (re)write the synthetic evaluation cases
 centinela eval run                      replay every case on the local model(s) and score them
+centinela site --out _site              build the static public demo (GitHub Pages)
 centinela incidents list                recent incidents with MTTD / MTTR
 centinela incidents show ID             timeline: alerts, logs, resolution
 centinela incidents close ID --cause .. --resolution ..   write the postmortem
@@ -83,6 +84,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     red.add_argument("--out", default="docs/redteam", help="where to write the results")
     red.add_argument("--list", action="store_true", help="list the attacks and exit")
+    site = sub.add_parser("site", help="build the static public demo page")
+    site.add_argument("--out", default="_site")
     ev = sub.add_parser("eval", help="evaluate the agent on recorded and synthetic incidents")
     ev_sub = ev.add_subparsers(dest="action", required=True)
     snap = ev_sub.add_parser("snapshot", help="print an incident as an evaluation case (JSON)")
@@ -649,7 +652,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return run_redteam(args)
     if args.command == "eval":
         return run_eval(args)
-    print(f"centinela {__version__} - phase 9: chaos + evaluation (try: centinela --help)")
+    if args.command == "site":
+        from pathlib import Path
+
+        from centinela.site import write
+
+        page = write(Path("."), Path(args.out))
+        print(f"demo page written to {page}")
+        return 0
+    print(f"centinela {__version__} - phase 10: CI/CD + public demo (try: centinela --help)")
     return 0
 
 

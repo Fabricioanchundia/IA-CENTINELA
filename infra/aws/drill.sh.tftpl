@@ -1,0 +1,53 @@
+#!/bin/bash
+# Centinela cloud drill (cloud-init user data). Runs once, as root, on a fresh Ubuntu 24.04.
+# Progress lines start with "CENTINELA-DRILL" and go to the serial console, which
+# `aws ec2 get-console-output` (and scripts/cloud-drill.sh) can read without any open port.
+set -uo pipefail
+
+shutdown -h +${max_minutes} "centinela drill: time limit" # hard stop; shutdown = terminate
+
+say() { echo "CENTINELA-DRILL $(date -u +%H:%M:%S) $*" >/dev/console 2>/dev/null || true; echo "$*"; }
+finish() {
+  say "RESULT $1"
+  if [ -f /root/summary.md ]; then
+    while IFS= read -r line; do say "SUMMARY $line"; done </root/summary.md
+  fi
+  sleep 90 # let the console output be collected before the instance disappears
+  shutdown -h now
+  exit 0
+}
+
+say "started on $(nproc) vCPU, $(free -g | awk '/Mem:/ {print $2}') GiB"
+export DEBIAN_FRONTEND=noninteractive HOME=/root
+
+say "installing Docker and tools"
+apt-get update -qq && apt-get install -y -qq docker.io git curl jq unzip zstd python3 >/dev/null || finish "FAILED apt"
+systemctl enable --now docker >/dev/null 2>&1
+
+curl -fsSL -o /usr/local/bin/k3d https://github.com/k3d-io/k3d/releases/download/v5.9.0/k3d-linux-amd64 &&
+  curl -fsSL -o /usr/local/bin/kubectl https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl &&
+  chmod +x /usr/local/bin/k3d /usr/local/bin/kubectl || finish "FAILED k3d/kubectl"
+curl -fsSL -o /tmp/tf.zip https://releases.hashicorp.com/terraform/1.17.1/terraform_1.17.1_linux_amd64.zip &&
+  unzip -oq /tmp/tf.zip -d /usr/local/bin terraform || finish "FAILED terraform"
+curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh >/dev/null || finish "FAILED uv"
+
+say "installing Ollama and the model (${model}, CPU only)"
+curl -fsSL https://ollama.com/install.sh | sh >/dev/null 2>&1 || finish "FAILED ollama"
+mkdir -p /etc/systemd/system/ollama.service.d
+printf '[Service]\nEnvironment="OLLAMA_HOST=0.0.0.0:11434"\n' >/etc/systemd/system/ollama.service.d/host.conf
+systemctl daemon-reload && systemctl restart ollama
+for _ in $(seq 30); do curl -fsS localhost:11434/api/version >/dev/null && break; sleep 2; done
+ollama pull "${model}" >/dev/null 2>&1 || finish "FAILED model pull"
+
+say "cloning the repository (${git_ref})"
+git clone --quiet --depth 1 --branch "${git_ref}" https://github.com/Fabricioanchundia/IA-CENTINELA /root/centinela ||
+  finish "FAILED clone"
+cd /root/centinela && uv sync --locked --all-packages >/dev/null 2>&1 || finish "FAILED uv sync"
+
+say "end-to-end test: deploy on k3s, break payments, follow the repair"
+if E2E_MODEL="${model}" GITHUB_STEP_SUMMARY=/root/summary.md ./scripts/e2e.sh >/root/e2e.log 2>&1; then
+  finish "PASSED"
+else
+  tail -n 25 /root/e2e.log | while IFS= read -r line; do say "LOG $line"; done
+  finish "FAILED e2e"
+fi

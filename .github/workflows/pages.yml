@@ -1,0 +1,49 @@
+# Public demo (Phase 10): a static page built from the repository's recorded incidents and
+# results, published to GitHub Pages. No server, no JavaScript, nothing to attack.
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - eval/cases/**
+      - docs/eval/**
+      - docs/redteam/**
+      - src/centinela/site.py
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - run: uv sync --locked --all-packages
+      - name: Build the page
+        run: uv run centinela site --out _site
+      - uses: actions/upload-pages-artifact@v5.0.0
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5.0.1

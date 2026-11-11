@@ -3,11 +3,13 @@
 > **AI SRE agent** that watches a microservices app, detects incidents, diagnoses the root cause from metrics and logs, and fixes them safely — asking a human before any risky action.
 
 [![ci](https://github.com/Fabricioanchundia/IA-CENTINELA/actions/workflows/ci.yml/badge.svg)](https://github.com/Fabricioanchundia/IA-CENTINELA/actions/workflows/ci.yml)
+[![e2e](https://github.com/Fabricioanchundia/IA-CENTINELA/actions/workflows/e2e.yml/badge.svg)](https://github.com/Fabricioanchundia/IA-CENTINELA/actions/workflows/e2e.yml)
+[![images](https://github.com/Fabricioanchundia/IA-CENTINELA/actions/workflows/images.yml/badge.svg)](https://github.com/Fabricioanchundia/IA-CENTINELA/actions/workflows/images.yml)
 ![Python](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Status](https://img.shields.io/badge/status-in%20development-orange)
 
-🚧 **Work in progress.** Built in public, phase by phase. Results with real numbers will be published here as each phase lands.
+**Live demo (static, safe):** [fabricioanchundia.github.io/IA-CENTINELA](https://fabricioanchundia.github.io/IA-CENTINELA/) — real incidents replayed: what broke, exactly what the AI saw, and what it proposed.
 
 ## What it does (target)
 
@@ -49,7 +51,7 @@ flowchart LR
 | 7 | MCP server + human-approved actions → **v0.7** | ✅ |
 | 8 | Agent security + prompt-injection red team → **v0.8** | ✅ |
 | 9 | Chaos engineering + evaluation (22 cases, 3 model configurations) → **v0.9** | ✅ |
-| 10 | Cloud demo + full CI/CD | ⏳ |
+| 10 | CI/CD: end-to-end on Kubernetes per PR, signed images, public demo → **v0.10** | ✅ |
 | 11 | Docs, video, results → **v1.0** | ⏳ |
 
 ## Designed for a 16 GB laptop
@@ -234,6 +236,18 @@ Results: [`docs/redteam/`](docs/redteam/). Design, findings and residual risk: [
 | median seconds | 0 | 8 | **11** | 33 |
 
 The chaos run also found three bugs, now fixed: a lagging latency alert that raised a false alarm after an incident had closed (late alerts now reopen their incident), a `restart` proposed for a bad release (no restarts right after a rollout: roll back), and no-op scale-ups. Details: [ADR-0011](docs/adr/0011-chaos-and-evaluation.md) · results: [`docs/eval/results.md`](docs/eval/results.md).
+
+## CI/CD and the public demo
+
+| Workflow | What it proves |
+|---|---|
+| `ci` | lint (ruff + bandit rules), strict types, 210 tests (including real PostgreSQL), secret scan, alert-rule unit tests, manifest and Terraform validation |
+| `e2e` | **every PR deploys the whole platform on a fresh Kubernetes cluster**, breaks payments and follows the loop to the end: alert → incident → AI diagnosis with stored evidence → pending fix (from the agent, or through MCP) → human approval → executor → incident resolved |
+| `images` | Trivy scan (fails on fixable critical CVEs); on `main`: images on `ghcr.io` with SBOM and provenance, **signed with Sigstore cosign** (keyless) |
+| `./scripts/cloud-drill.sh` | the same end-to-end test **on AWS**: Terraform creates one EC2 instance with no open ports, no SSH key and no credentials; it deploys Centinela on k3s, repairs the outage, and **terminates itself** (about USD 0.30–0.50 per run) |
+| `pages` | the [public demo](https://fabricioanchundia.github.io/IA-CENTINELA/): static HTML from the recorded incidents and results, no server and no JavaScript, so there is nothing to attack |
+
+Why not a permanent cloud deployment: about USD 70/month without a GPU, and a public approval console is a risk the demo does not need. Details: [ADR-0012](docs/adr/0012-ci-cd-and-public-demo.md).
 
 ## Quick start (development)
 
