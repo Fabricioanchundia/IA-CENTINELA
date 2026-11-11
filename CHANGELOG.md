@@ -21,7 +21,8 @@ repairs an outage end to end; images are signed; a static public demo replays re
 - `images` workflow: Trivy scan on every PR; on main, images on ghcr.io with SBOM and provenance,
   signed with Sigstore cosign (keyless).
 - `centinela site` and the `pages` workflow: a public demo page in Spanish and English that opens
-  with an incident player (four real recorded stories, step by step), then the engineering detail:
+  with an incident simulator (choose what to break, approve or reject as the on-call engineer,
+  try any of the 11 real red-team attacks; everything shown was recorded), then the engineering detail:
   how to run it, architecture, evaluation, red team and every recorded incident. One same-site
   script with no network access (strict CSP); readable without JavaScript.
 - ADR-0012.

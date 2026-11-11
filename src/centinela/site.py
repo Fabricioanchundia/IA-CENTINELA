@@ -75,6 +75,8 @@ h2{font-size:1.6rem;letter-spacing:-.025em;font-weight:620;margin:0 0 10px}
 .intro{color:var(--ink2);max-width:70ch;margin:0 0 28px}
 /* ---------------- the player ---------------- */
 .player{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.pick{margin:0;padding:14px 20px 0;font-size:13.5px;font-weight:600;color:var(--muted)}
+html:not(.js) .pick{display:none}
 .tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--line)}
 html:not(.js) .tabs{display:none}
 .tabs button{background:none;border:0;border-right:1px solid var(--line);text-align:left;padding:16px 20px 14px;
@@ -86,6 +88,18 @@ display:flex;flex-direction:column;gap:2px;position:relative;color:var(--ink2)}
 .tabs button[aria-selected="true"]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--steel)}
 .tabs button:hover b{color:var(--steel)}
 .scenario{padding:28px 28px 20px}
+.choices{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+html:not(.js) .choices,html:not(.js) .btns>button{pointer-events:none}
+.choice{border:1.5px solid var(--steel);background:var(--surface);color:var(--steel);border-radius:10px;padding:9px 16px;font-size:15px;font-weight:600}
+.choice:hover{background:var(--steel);color:var(--steel-ink)}
+.btns>button.choice{padding:7px 0;font-size:14px}
+.btns>button.approve:hover{filter:brightness(1.1)}
+.levels{width:100%;border-collapse:collapse;margin:12px 0 10px;background:none;font-size:14px}
+.levels th,.levels td{padding:8px 10px;border-bottom:1px solid var(--line);white-space:normal;text-align:left;vertical-align:top}
+.levels thead th{font-size:12.5px;padding-top:0}
+.levels tbody th{font-weight:500;color:var(--ink2);font-size:13.5px}
+.levels tr.mine th,.levels tr.mine td{background:color-mix(in srgb,var(--ok) 9%,transparent)}
+.why{font-size:14px!important}
 html:not(.js) .scenario+.scenario{border-top:1px solid var(--line)}
 .frames{list-style:none;margin:0;padding:0}
 html:not(.js) .frame+.frame{margin-top:36px;padding-top:28px;border-top:1px dashed var(--line)}
@@ -94,10 +108,10 @@ html:not(.js) .frame+.frame{margin-top:36px;padding-top:28px;border-top:1px dash
 @keyframes enter{from{opacity:.25}to{opacity:1}}
 .cap{max-width:78ch;margin-bottom:22px}
 .meta{display:flex;gap:14px;margin:0 0 6px;font:500 13px var(--mono);color:var(--muted)}
-.cap h3{font-size:1.55rem;letter-spacing:-.025em;font-weight:620;margin:0 0 6px;display:flex;align-items:center;gap:12px}
-.cap h3::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--steel);flex:none}
+.cap h3{font-size:1.55rem;line-height:1.25;letter-spacing:-.025em;font-weight:620;margin:0 0 6px;display:flex;align-items:flex-start;gap:12px}
+.cap h3::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--steel);flex:none;margin-top:.5em}
 .frame.tone-bad .cap h3::before{background:var(--bad)}.frame.tone-good .cap h3::before{background:var(--ok)}
-.cap>p:last-child{margin:0;color:var(--ink2);font-size:1.05rem}
+.cap>p:not(.meta){margin:0;color:var(--ink2);font-size:1.05rem}
 .stage{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.5fr) minmax(0,.9fr);gap:16px;align-items:stretch}
 .pane{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--paper);min-height:250px}
 .pane-h{margin:0 0 12px;font-size:13px;font-weight:500;color:var(--muted)}
@@ -144,7 +158,7 @@ border-left:3px solid var(--steel);border-radius:8px;font-size:15.5px;line-heigh
 .card>b{font-size:15.5px;line-height:1.35}
 .card>p{font-size:12.5px!important;color:var(--muted)!important;margin:0!important}
 .btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.btns>span{text-align:center;border-radius:9px;padding:7px 0;font-size:14px;font-weight:600;border:1px solid var(--line)}
+.btns>span,.btns>button{text-align:center;border-radius:9px;padding:7px 0;font-size:14px;font-weight:600;border:1px solid var(--line)}
 .btns .approve{background:var(--steel);color:var(--steel-ink);border-color:var(--steel)}
 .card.approved{border-color:var(--ok)}.card.approved small{color:var(--ok)}
 .card.approved .approve{background:var(--ok);border-color:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
@@ -155,12 +169,14 @@ border-left:3px solid var(--steel);border-radius:8px;font-size:15.5px;line-heigh
 .controls button:not(.dot){border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:7px 14px;font-size:14.5px;font-weight:500}
 .controls button.primary{background:var(--steel);color:var(--steel-ink);border-color:var(--steel)}
 .controls button:disabled{opacity:.4;cursor:default}
-.controls .play .busy,.playing .controls .play .idle{display:none}.playing .controls .play .busy{display:inline}
+.controls .play .busy,.playing .controls .play .idle{display:none}
+.controls .again,.finished .controls .next,.waiting .controls .next,.finished .controls .play,.waiting .controls .play{display:none}
+.finished .controls .again{display:inline-block}.playing .controls .play .busy{display:inline}
 .dots{display:flex;gap:6px;flex:1;min-width:0}
 .dot{flex:1;height:6px;border:0;border-radius:3px;background:var(--line);padding:0;position:relative;overflow:hidden;max-width:90px}
 .dot.done{background:var(--steel)}
-.dot[aria-current="step"]{background:color-mix(in srgb,var(--steel) 45%,var(--line))}
-.playing .dot[aria-current="step"]::after{content:"";position:absolute;inset:0;background:var(--steel);transform-origin:left;animation:fill 6s linear forwards}
+.dot.now{background:color-mix(in srgb,var(--steel) 45%,var(--line))}
+.playing .dot.now::after{content:"";position:absolute;inset:0;background:var(--steel);transform-origin:left;animation:fill 6s linear forwards}
 @keyframes fill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 /* ---------------- how it works ---------------- */
 .flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;counter-reset:s}
@@ -398,11 +414,14 @@ def _redteam_table(files: list[Path]) -> str:
     )
 
 
-RUN_IT = """<span class="c"># needs Docker, uv, k3d, kubectl, Terraform and Ollama</span>
+RUN_IT = """<span class="c"># needs Docker, uv, k3d, kubectl, Terraform and Ollama (Linux, macOS or WSL2)</span>
 git clone https://github.com/Fabricioanchundia/IA-CENTINELA
 cd IA-CENTINELA && uv sync --all-packages
-<span class="c"># fresh cluster, break payments, approve, watch the repair</span>
+ollama pull qwen3:8b            <span class="c"># the model, about 5 GB</span>
+<span class="c"># fresh cluster, break payments, approve, watch the repair (about 20 minutes)</span>
 ./scripts/e2e.sh
+<span class="c"># no GPU? use a small model on the CPU</span>
+ollama pull qwen3:1.7b && E2E_MODEL=qwen3:1.7b ./scripts/e2e.sh
 <span class="c"># replay the recorded incidents on your own model</span>
 uv run centinela eval run"""
 
@@ -438,7 +457,7 @@ def build(root: Path) -> str:
 <div class="wrap hero">
 <h1>{t("Cuando tu sistema falla, Centinela encuentra la causa y propone el arreglo. Una persona decide.", "When your system fails, Centinela finds the cause and proposes the fix. A person decides.")}</h1>
 <div><p class="lede">{t("Es un agente de IA para equipos de operaciones. Abajo puedes ver cómo manejó fallas reales que provocamos a propósito en una tienda en línea: qué vio, qué concluyó y quién tuvo la última palabra.", "An AI agent for operations teams. Below, watch how it handled real faults we caused on purpose in an online shop: what it saw, what it concluded and who had the last word.")}</p>
-<p class="links"><a href="#how">{t("Cómo funciona", "How it works")}</a><a href="#engineers">{t("Detalles técnicos", "Technical details")}</a><a href="{REPO}">{t("Código fuente", "Source code")}</a></p></div>
+<p class="links"><a href="#demo">{t("Probar el simulador", "Try the simulator")}</a><a href="#try">{t("Probar la IA real en tu máquina", "Run the real AI yourself")}</a><a href="{REPO}">{t("Código fuente", "Source code")}</a></p></div>
 </div>
 <section class="demo"><div class="wrap">{player}</div></section>
 
@@ -462,7 +481,7 @@ def build(root: Path) -> str:
 <h2>{t("Para ingenieros", "For engineers")}</h2>
 <p class="intro">{t("Python 3.12, Kubernetes (k3s), Terraform, Prometheus, Loki, PostgreSQL, Ollama y un servidor MCP. Cada pull request levanta un clúster nuevo y repite la reparación de punta a punta.", "Python 3.12, Kubernetes (k3s), Terraform, Prometheus, Loki, PostgreSQL, Ollama and an MCP server. Every pull request builds a fresh cluster and repeats the repair end to end.")}</p>
 <div class="cols"><div>
-<h3 class="sub" style="margin-top:0">{t("Pruébalo en tu máquina", "Run it yourself")}</h3>
+<h3 class="sub" id="try" style="margin-top:0">{t("Prueba la IA real en tu máquina", "Try the real AI on your machine")}</h3>
 <pre class="term">{RUN_IT}</pre>
 </div><div>
 <h3 class="sub" style="margin-top:0">{t("Dónde comprobarlo", "Where to check it")}</h3>

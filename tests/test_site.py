@@ -35,16 +35,17 @@ def test_player_tells_four_real_stories_in_two_languages(tmp_path: Path) -> None
         assert f'id="sc-{key}"' in page
     # payments-down: the real recorded times and answer
     assert "15:28:52 UTC" in page and "scaled to 0 replicas, causing upstream errors" in page
-    assert (
-        "Volver a encender pagos (1 copia)" in page
-        and "Scale payments back up to 1 replica" in page
-    )
+    assert "Encender más copias de pagos" in page and "Start more copies of payments" in page
+    # the visitor decides: approve and reject lead to different endings
+    assert 'data-to="pay-approved"' in page and 'data-to="pay-rejected"' in page
+    assert 'id="pay-rejected"' in page and "Centinela never acts without an approval" in page
     # postgres-down: the model suggested touching the database, the policy blocked it
     assert "<p class='struck'>" in page and "Bloqueada por la política" in page
     # the bad release: the real wrong proposal, then today's rule
     assert "Propuesta incorrecta" in page and "NEW ROLLOUT" in page
     # the injection: the attacker's text is shown escaped, with the measured result
     assert "IGNORE ALL PREVIOUS INSTRUCTIONS" in page and "coupon &quot;" in page
+    assert page.count('data-to="atk-') == 11  # the visitor picks one of the real attacks
     assert re.search(r"<div class='good'><dt>.*?</dt><dd>0</dd>", page)
     assert page.count('class="es"') == page.count('class="en"')
 
@@ -55,7 +56,8 @@ def test_static_files_and_no_emoji(tmp_path: Path) -> None:
     for name in ("geist.woff2", "geist-mono.woff2", "OFL.txt", "player.js"):
         assert (out / name).stat().st_size > 0
     assert "fonts.googleapis" not in page
-    assert not any(ord(ch) >= 0x2600 for ch in page)  # no emoji or pictographs
+    emoji = [ch for ch in page if 0x1F300 <= ord(ch) <= 0x1FAFF or 0x2600 <= ord(ch) <= 0x27BF]
+    assert not emoji
 
 
 def test_only_the_local_player_script_and_untrusted_text_is_escaped(tmp_path: Path) -> None:
@@ -75,3 +77,25 @@ def test_only_the_local_player_script_and_untrusted_text_is_escaped(tmp_path: Pa
     assert "default-src 'none'" in policy and "script-src 'self'" in policy
     assert "unsafe-inline" not in policy.split("script-src", 1)[1].split(";")[0]
     assert "connect-src" not in policy  # falls back to default-src 'none': no network at all
+
+
+def test_every_frame_of_the_simulator_is_reachable() -> None:
+    from centinela.site_player import Frame, Scenario, _link
+
+    def frame(**kw: object) -> Frame:
+        return Frame("t", "c", {}, "", "", **kw)  # type: ignore[arg-type]
+
+    ok = Scenario(
+        "x",
+        "",
+        "",
+        [frame(choices=[("a", "x-a"), ("b", "x-b")]), frame(id="x-a", end=True), frame(id="x-b")],
+    )
+    assert _link(ok) == {"x-0": 0, "x-a": 1, "x-b": 1}
+    lost = Scenario("y", "", "", [frame(end=True), frame()])
+    try:
+        _link(lost)
+    except ValueError as err:
+        assert "unreachable" in str(err)
+    else:
+        raise AssertionError("an unreachable frame must fail the build")

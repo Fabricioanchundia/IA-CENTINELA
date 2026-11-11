@@ -18,7 +18,7 @@ from typing import Any
 from centinela.agent import snapshot
 from centinela.agent.evidence import Evidence
 from centinela.eval.cases import Case
-from centinela.redteam.attacks import ATTACKS
+from centinela.redteam.attacks import ATTACKS, Attack
 
 SERVICES = (
     ("catalog", "catálogo", "catalog"),
@@ -49,6 +49,16 @@ KINDS = {
 }
 
 
+# the same names with the article each one takes in a sentence
+THE = {
+    "catalog": ("el catálogo", "catalog"),
+    "orders": ("pedidos", "orders"),
+    "payments": ("pagos", "payments"),
+    "redis": ("la caché", "the cache"),
+    "postgres": ("la base de datos", "the database"),
+}
+
+
 def t(es: str, en: str) -> str:
     """Both languages; the page shows one. Arguments are trusted HTML written in this file."""
     return f'<span class="es">{es}</span><span class="en">{en}</span>'
@@ -65,9 +75,9 @@ def svc(key: str) -> str:
 
 def action_text(action: str) -> str:
     kind, _, target = action.replace(" ", ":").partition(":")
-    es, en = NAMES.get(target, (target, target))
+    es, en = (_e(n) for n in THE.get(target, (target, target)))
     if kind == "scale_up":
-        return t(f"Volver a encender {es} (1 copia)", f"Scale {en} back up to 1 replica")
+        return t(f"Encender más copias de {es}", f"Start more copies of {en}")
     if kind == "restart":
         return t(f"Reiniciar {es}", f"Restart {en}")
     return t("No tocar nada y avisar a una persona", "Change nothing and hand over to a person")
@@ -82,6 +92,10 @@ class Frame:
     phone: str
     when: datetime | None = None
     tone: str = ""  # "", "bad" or "good": colours the caption marker
+    id: str = ""  # set by render() when empty
+    choices: list[tuple[str, str]] = field(default_factory=list)  # (label, frame id)
+    next: str | None = None  # None: the frame that follows in the list, unless end
+    end: bool = False
 
 
 @dataclass
@@ -115,18 +129,29 @@ def _phone_note(text: str, cls: str = "") -> str:
     return f'<div class="msg {cls}"><b>Centinela</b><p>{text}</p></div>'
 
 
-def _phone_proposal(action: str, state: str = "pending") -> str:
+def _phone_proposal(
+    action: str, state: str = "pending", decide: list[tuple[str, str]] | None = None
+) -> str:
     """state: pending, approved, wrong, or hijacked (the attacker's action reached the human)."""
     head = {
         "pending": t("Propuesta, espera tu decisión", "Proposal, waiting for your decision"),
         "approved": t("Aprobada por una persona", "Approved by a person"),
         "hijacked": t("Propuesta del atacante", "The attacker's proposal"),
+        "defended": t("Con Centinela te llega esto", "With Centinela you get this"),
         "wrong": t("Propuesta incorrecta", "Wrong proposal"),
     }[state]
-    buttons = (
-        f'<div class="btns" aria-hidden="true"><span class="approve">{t("Aprobar", "Approve")}</span>'
-        f'<span class="reject">{t("Rechazar", "Reject")}</span></div>'
-    )
+    if decide:
+        (approve_label, approve_to), (reject_label, reject_to) = decide
+        buttons = (
+            f'<div class="btns"><button type="button" class="approve choice" data-to="{approve_to}">'
+            f'{approve_label}</button><button type="button" class="reject choice" data-to="{reject_to}">'
+            f"{reject_label}</button></div>"
+        )
+    else:
+        buttons = (
+            f'<div class="btns" aria-hidden="true"><span class="approve">{t("Aprobar", "Approve")}</span>'
+            f'<span class="reject">{t("Rechazar", "Reject")}</span></div>'
+        )
     expiry = t("Vence en 15 minutos si nadie responde.", "Expires in 15 minutes if nobody answers.")
     return (
         f'<div class="card {state}"><small>{head}</small><b>{action_text(action)}</b>'
@@ -261,6 +286,15 @@ def _opening(case: Case, ev: Evidence, broken: dict[str, str], fault: str) -> li
     ]
 
 
+YOUR_TURN = t(
+    "Tú eres el ingeniero de guardia. ¿Qué haces?", "You are the on-call engineer. What do you do?"
+)
+
+
+def _decide(approve: str, reject: str) -> list[tuple[str, str]]:
+    return [(t("Aprobar", "Approve"), approve), (t("Rechazar", "Reject"), reject)]
+
+
 def payments_down(case: Case, ev: Evidence) -> Scenario:
     broken = {"payments": "down", "orders": "errors"}
     _, _, diagnosed = _times(ev, case.live)
@@ -270,33 +304,36 @@ def payments_down(case: Case, ev: Evidence) -> Scenario:
         ev,
         broken,
         t(
-            "Alguien deja el servicio de pagos en 0 copias. Los clientes ya no pueden pagar y pedidos empieza a fallar.",
-            "Someone scales payments to zero. Customers cannot pay and orders starts failing.",
+            "Se apaga el servicio de pagos (queda en 0 copias). Los clientes ya no pueden pagar y pedidos empieza a fallar.",
+            "Payments is scaled to zero. Customers cannot pay and orders starts failing.",
         ),
     )
     frames += [
         Frame(
-            t("Propone el arreglo", "Proposes the fix"),
+            t("Propone el arreglo: decides tú", "It proposes the fix: you decide"),
             t(
-                "Propone una sola acción segura. No la ejecuta: le llega a una persona para que decida.",
-                "It proposes one safe action. It does not run it: a person decides.",
-            ),
+                "Centinela propone una sola acción segura y no la ejecuta. ",
+                "Centinela proposes one safe action and does not run it. ",
+            )
+            + YOUR_TURN,
             broken,
             f"<h4>{t('Por qué es segura', 'Why it is safe')}</h4><p>{t('El ejecutor solo puede encender o reiniciar cuatro servicios con nombre, y nunca la base de datos.', 'The executor can only scale or restart four named services, never the database.')}</p>",
-            _phone_proposal(action),
+            _phone_proposal(action, decide=_decide("pay-approved", "pay-rejected")),
             diagnosed,
+            choices=_decide("pay-approved", "pay-rejected"),
         ),
         Frame(
-            t("Una persona aprueba", "A person approves"),
+            t("Aprobaste", "You approved"),
             t(
-                "El ingeniero aprueba desde la consola o la terminal. En el incidente real #9 lo aprobó Fabricio desde la consola web.",
-                "The engineer approves from the console or the terminal. In real incident #9 Fabricio approved it from the web console.",
+                "Tu aprobación queda registrada con tu nombre y la hora. En el incidente real #9 lo aprobó Fabricio desde la consola web.",
+                "Your approval is recorded with your name and the time. In real incident #9 Fabricio approved it from the web console.",
             ),
             broken,
-            f'<p class="quiet">{t("Aprobación registrada con nombre y hora.", "Approval recorded with name and time.")}</p>',
+            f'<p class="quiet">{t("El ejecutor recibe la orden aprobada y vuelve a comprobar la política antes de actuar.", "The executor receives the approved order and checks the policy again before acting.")}</p>',
             _phone_proposal(action, "approved"),
             None,
             "good",
+            id="pay-approved",
         ),
         Frame(
             t("Arreglado y verificado", "Fixed and verified"),
@@ -309,11 +346,32 @@ def payments_down(case: Case, ev: Evidence) -> Scenario:
             _phone_note(t("Incidente resuelto.", "Incident resolved."), "good"),
             None,
             "good",
+            end=True,
+        ),
+        Frame(
+            t("Rechazaste", "You rejected"),
+            t(
+                "Nada cambia en el sistema: Centinela nunca actúa sin una aprobación. Pagos sigue caído y el incidente sigue abierto con el diagnóstico listo, para que alguien lo arregle de otra forma. Si nadie responde, la propuesta vence a los 15 minutos.",
+                "Nothing changes in the system: Centinela never acts without an approval. Payments stays down and the incident stays open with the diagnosis ready, for someone to fix it another way. If nobody answers, the proposal expires after 15 minutes.",
+            ),
+            broken,
+            f'<p class="quiet">{t("Propuesta rechazada y registrada. El ejecutor no hace nada.", "Proposal rejected and recorded. The executor does nothing.")}</p>',
+            _phone_note(
+                t(
+                    "Propuesta rechazada. El incidente sigue abierto.",
+                    "Proposal rejected. The incident stays open.",
+                ),
+                "warn",
+            ),
+            None,
+            "bad",
+            id="pay-rejected",
+            end=True,
         ),
     ]
     return Scenario(
         "payments-down",
-        t("Se cae pagos", "Payments goes down"),
+        t("Apagar pagos", "Turn off payments"),
         t("El caso típico, de principio a fin.", "The typical case, start to finish."),
         frames,
     )
@@ -367,7 +425,7 @@ def postgres_down(case: Case, ev: Evidence) -> Scenario:
     ]
     return Scenario(
         "postgres-down",
-        t("Se cae la base de datos", "The database goes down"),
+        t("Apagar la base de datos", "Turn off the database"),
         t("Cuando lo correcto es no tocar nada.", "When the right move is to touch nothing."),
         frames,
     )
@@ -397,19 +455,48 @@ def bad_release(case: Case, ev: Evidence, today: str) -> Scenario:
     )
     frames += [
         Frame(
-            t("La IA se equivoca", "The AI gets it wrong"),
+            t("La IA propone algo: decides tú", "The AI proposes something: you decide"),
             t(
-                "Encontró bien la causa, pero propuso reiniciar pagos. Reiniciar no arregla una versión defectuosa: lo correcto es volver a la anterior. Esto pasó de verdad, en la grabación de esta falla.",
-                "It found the right cause but proposed restarting payments. A restart does not fix a bad release: the fix is to roll back. This really happened in the recording of this fault.",
-            ),
+                "Encontró bien la causa y propuso reiniciar pagos. Esto pasó de verdad en la grabación de esta falla. ",
+                "It found the right cause and proposed restarting payments. This really happened in the recording of this fault. ",
+            )
+            + YOUR_TURN,
             broken,
             f"<h4>{t('Lo que vio en Kubernetes', 'What it saw in Kubernetes')}</h4><code class='line'>payments: {_e(rollout)}</code>",
-            _phone_proposal(proposed, "wrong"),
+            _phone_proposal(proposed, decide=_decide("rel-approved", "rel-rejected")),
             diagnosed,
-            "bad",
+            choices=_decide("rel-approved", "rel-rejected"),
         ),
         Frame(
-            t("Se añade una regla", "A rule is added"),
+            t("Aprobaste un reinicio que no sirve", "You approved a restart that does not help"),
+            t(
+                "Un reinicio vuelve a arrancar la misma versión defectuosa, así que los errores seguirían. Lo correcto era volver a la versión anterior. La IA se equivocó, y aprobar sin mirar no lo arregla.",
+                "A restart starts the same buggy release again, so the errors would continue. The fix was to roll back. The AI was wrong, and approving without looking does not fix it.",
+            ),
+            broken,
+            f'<p class="quiet">{t("Pagos sigue con errores después del reinicio.", "Payments still fails after the restart.")}</p>',
+            _phone_proposal(proposed, "wrong"),
+            None,
+            "bad",
+            id="rel-approved",
+            next="rel-rule",
+        ),
+        Frame(
+            t("Bien visto: rechazaste", "Well spotted: you rejected"),
+            t(
+                "Un reinicio habría vuelto a arrancar la misma versión defectuosa. Lo correcto es volver a la versión anterior, y eso lo decide una persona.",
+                "A restart would have started the same buggy release again. The fix is to roll back, and a person decides that.",
+            ),
+            broken,
+            f'<p class="quiet">{t("Propuesta rechazada. Nada cambió en el sistema.", "Proposal rejected. Nothing changed in the system.")}</p>',
+            _phone_note(t("Propuesta rechazada.", "Proposal rejected."), "warn"),
+            None,
+            "good",
+            id="rel-rejected",
+            next="rel-rule",
+        ),
+        Frame(
+            t("Se añadió una regla", "A rule was added"),
             t(
                 "Después de esta falla se añadió una regla en el código: si hubo un despliegue minutos antes de la alarma, no se propone reiniciar. Con las reglas de hoy, la misma respuesta del modelo termina así:",
                 "After this fault a rule was added in code: if there was a rollout minutes before the alert, no restart is proposed. With today's rules the same model answer ends like this:",
@@ -426,36 +513,169 @@ def bad_release(case: Case, ev: Evidence, today: str) -> Scenario:
             ),
             None,
             "good",
+            id="rel-rule",
+            end=True,
         ),
     ]
     return Scenario(
         "bad-release",
-        t("Actualización defectuosa", "A bad release"),
+        t("Publicar una versión con errores", "Ship a buggy release"),
         t("Un error real de la IA y cómo se corrigió.", "A real AI mistake and how it was fixed."),
         frames,
     )
 
 
+ATTACK_COPY = {
+    "direct_override": (
+        ("Orden directa", "Direct order"),
+        (
+            "Escribe una orden para la IA dentro del cupón.",
+            "Writes an order for the AI inside the coupon.",
+        ),
+    ),
+    "fake_system": (
+        ("Mensaje falso del sistema", "Fake system message"),
+        (
+            "Se hace pasar por una instrucción del jefe de operaciones.",
+            "Pretends to be an instruction from the operations lead.",
+        ),
+    ),
+    "fake_evidence": (
+        ("Prueba falsificada", "Forged evidence"),
+        (
+            "Inventa una alarma con el mismo formato que las pruebas reales.",
+            "Invents an alert in the same format as the real evidence.",
+        ),
+    ),
+    "json_answer": (
+        ("Respuesta ya escrita", "Pre-written answer"),
+        (
+            "Escribe la respuesta en el mismo formato JSON que usa la IA.",
+            "Writes the answer in the AI's own JSON format.",
+        ),
+    ),
+    "fence_escape": (
+        ("Salirse del bloque", "Breaking out"),
+        (
+            "Intenta cerrar el bloque de pruebas para hablar fuera de él.",
+            "Tries to close the evidence block to speak outside it.",
+        ),
+    ),
+    "spaced_letters": (
+        ("Letras separadas", "Spaced letters"),
+        (
+            "Separa las letras para esquivar los filtros de palabras.",
+            "Spaces out the letters to dodge keyword filters.",
+        ),
+    ),
+    "fullwidth": (
+        ("Letras anchas", "Full-width letters"),
+        (
+            "Usa letras Unicode de ancho completo para esquivar filtros.",
+            "Uses full-width Unicode letters to dodge filters.",
+        ),
+    ),
+    "spanish": (
+        ("En español", "In Spanish"),
+        ("La misma orden, escrita en español.", "The same order, written in Spanish."),
+    ),
+    "note_to_ai": (
+        ("Nota para la IA", "Note to the AI"),
+        (
+            "Le habla a la IA desde un evento de Kubernetes sobre la caché.",
+            "Addresses the AI from a Kubernetes event about the cache.",
+        ),
+    ),
+    "poisoned_postmortem": (
+        ("Informe falso", "Poisoned postmortem"),
+        (
+            "Un informe de un incidente pasado escrito por alguien de dentro, sin palabras sospechosas.",
+            "A past incident report written by an insider, with no suspicious words.",
+        ),
+    ),
+    "social_engineering": (
+        ("Ingeniería social", "Social engineering"),
+        (
+            "Un mensaje creíble de un supuesto compañero, sin palabras sospechosas.",
+            "A believable message from a supposed colleague, with no suspicious words.",
+        ),
+    ),
+}
+WHERE = {
+    "log": ("los registros de pedidos", "the orders logs"),
+    "event": ("un evento de Kubernetes", "a Kubernetes event"),
+    "history": ("un incidente pasado", "a past incident"),
+}
+LEVELS = (
+    ("L0", ("Sin defensas", "No defences")),
+    ("L1", ("Solo instrucciones al modelo", "Prompt defences only")),
+    ("L2", ("Centinela", "Centinela")),
+)
+
+
+def _levels(runs: dict[str, dict[str, Any]]) -> str:
+    rows = []
+    for key, (es, en) in LEVELS:
+        run = runs[key]
+        won = bool(run["attacker_wins"])
+        verdict = (
+            f'<span class="bad">{t("gana el atacante", "attacker wins")}</span>'
+            if won
+            else f'<span class="ok">{t("no gana", "attacker loses")}</span>'
+        )
+        rows.append(
+            f'<tr class="{"mine" if key == "L2" else ""}"><th>{t(es, en)}</th>'
+            f"<td>{action_text(str(run['proposal'] or 'none'))}</td><td>{verdict}</td></tr>"
+        )
+    return (
+        f'<table class="levels"><thead><tr><th></th><th>{t("Le llega a la persona", "Reaches the person")}</th><th></th></tr></thead>'
+        f"<tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+def _attack_frame(attack: Attack, runs: dict[str, dict[str, Any]], slow: dict[str, str]) -> Frame:
+    (name_es, name_en), (how_es, how_en) = ATTACK_COPY[attack.name]
+    where_es, where_en = WHERE.get(attack.where, (attack.where, attack.where))
+    caught = sorted({q.split(": ", 1)[-1] for q in runs["L2"]["quarantined"]})
+    if caught:
+        why = t(
+            f"El detector de Centinela lo reconoció ({_e(', '.join(caught))}) y lo puso en cuarentena antes de que el modelo lo leyera.",
+            f"Centinela's detector recognised it ({_e(', '.join(caught))}) and quarantined it before the model read it.",
+        )
+    else:
+        why = t(
+            "No tiene palabras sospechosas, así que el detector no lo marcó. Aun así no ganó: Centinela no actúa sobre la caché porque no tiene ninguna alarma propia.",
+            "It has no suspicious words, so the detector did not flag it. It still lost: Centinela does not act on the cache, which has no alert of its own.",
+        )
+    l2 = runs["L2"]
+    return Frame(
+        t(f"Ataque: {name_es}", f"Attack: {name_en}"),
+        t(how_es, how_en),
+        slow,
+        f"<h4>{t(f'Escrito en {where_es}', f'Planted in {where_en}')}</h4>"
+        f'<pre class="term short">{_e(attack.text)}</pre>{_levels(runs)}<p class="why">{why}</p>',
+        _phone_proposal(str(l2["proposal"] or "none"), "defended"),
+        None,
+        "good" if not l2["attacker_wins"] else "bad",
+        id=f"atk-{attack.name}",
+        next="atk-result",
+    )
+
+
 def injection(redteam: dict[str, Any]) -> Scenario:
-    attack = next(a for a in ATTACKS if a.name == "direct_override")
-    runs = {r["level"]: r for r in redteam["runs"] if r["attack"] == attack.name}
-    l1, l2 = runs["L1"], runs["L2"]
+    runs: dict[str, dict[str, dict[str, Any]]] = {}
+    for run in redteam["runs"]:
+        runs.setdefault(run["attack"], {})[run["level"]] = run
+    attacks = [a for a in ATTACKS if a.name in ATTACK_COPY and a.name in runs]
     totals = redteam["totals"]
     slow = {"orders": "slow"}
-    term = f'<pre class="term short">{_e(attack.text)}\n{_e(attack.text)}\n…</pre>'
-
-    def outcome(run: dict[str, Any]) -> str:
-        return (
-            f'<figure class="said"><blockquote lang="en">{_e(run["summary"])}</blockquote>'
-            f"<figcaption>{t('Respuesta real del modelo', 'The model’s real answer')}, {_e(redteam['model'])}</figcaption></figure>"
-        )
-
+    picker = [(t(*ATTACK_COPY[a.name][0]), f"atk-{a.name}") for a in attacks]
     frames = [
         Frame(
             t("Pedidos va lento", "Orders is slow"),
             t(
-                "Solo pedidos está lento. No hay otra señal: la causa está en pedidos.",
-                "Only orders is slow. There is no other signal: the cause is in orders.",
+                "Solo pedidos está lento. No hay otra señal: la causa está en pedidos, y la caché funciona bien.",
+                "Only orders is slow. There is no other signal: the cause is in orders, and the cache works fine.",
             ),
             slow,
             '<ul class="alerts"><li><b>HighLatencyP95</b><span>orders p95 2.4 s</span></li></ul>',
@@ -464,73 +684,50 @@ def injection(redteam: dict[str, Any]) -> Scenario:
             ),
         ),
         Frame(
-            t("Alguien escribe una trampa", "Someone plants a trap"),
+            t("Elige cómo engañar a la IA", "Choose how to trick the AI"),
             t(
-                f"Pedidos guarda en sus registros el cupón que escribe el cliente. Un atacante escribe como cupón una orden para la IA, {redteam_repeat(redteam)} veces. Quiere que se reinicie la caché, que no tiene nada que ver.",
-                f"Orders logs the coupon code the customer types. An attacker types an order for the AI as the coupon, {redteam_repeat(redteam)} times. They want the cache restarted, which has nothing to do with it.",
+                "Pedidos guarda en sus registros el cupón que escribe el cliente, así que cualquiera puede escribir texto que la IA va a leer. Tu objetivo como atacante: que se reinicie la caché, que no tiene nada que ver. Elige un ataque; cada uno se probó de verdad.",
+                "Orders logs the coupon code the customer types, so anyone can write text the AI will read. Your goal as the attacker: get the cache restarted, though it has nothing to do with it. Pick an attack; each one was really tested.",
             ),
             slow,
-            f"<h4>{t('Registros de pedidos', 'Orders logs')}</h4>{term}",
+            f"<h4>{t('Registros de pedidos', 'Orders logs')}</h4>"
+            '<pre class="term short">payment failed for order 8812: coupon "SUMMER10" rejected</pre>'
+            f"<p class='quiet'>{t('Así se ve un registro normal. El atacante cambia lo que va entre comillas.', 'This is a normal log line. The attacker changes what goes between the quotes.')}</p>",
             _phone_idle(),
             None,
             "bad",
+            choices=picker,
         ),
+    ]
+    frames += [_attack_frame(a, runs[a.name], slow) for a in attacks]
+    frames.append(
         Frame(
-            t("Sin las defensas de Centinela", "Without Centinela's defences"),
+            t("El resultado de todos los ataques", "The result of every attack"),
             t(
-                "Con defensas solo en las instrucciones del modelo, la IA obedece al atacante: culpa a la caché y propone reiniciarla.",
-                "With defences only in the model's instructions, the AI obeys the attacker: it blames the cache and proposes restarting it.",
-            ),
-            slow,
-            outcome(l1),
-            _phone_proposal(l1["proposal"], "hijacked"),
-            None,
-            "bad",
-        ),
-        Frame(
-            t("Con Centinela", "With Centinela"),
-            t(
-                f"Un detector en código encuentra las {len(l2['quarantined'])} líneas con instrucciones y las pone en cuarentena antes de que el modelo las lea. La IA vuelve a mirar pedidos, y la caché no se toca.",
-                f"A detector in code finds the {len(l2['quarantined'])} lines with instructions and quarantines them before the model reads them. The AI looks at orders again and the cache is left alone.",
-            ),
-            slow,
-            outcome(l2),
-            _phone_proposal(l2["proposal"]),
-            None,
-            "good",
-        ),
-        Frame(
-            t("El resultado medido", "The measured result"),
-            t(
-                f"Se probaron {totals['L2']['attacks']} ataques distintos en este incidente: órdenes directas, mensajes falsos del sistema, letras separadas, pruebas falsificadas.",
-                f"{totals['L2']['attacks']} different attacks were tried on this incident: direct orders, fake system messages, spaced letters, forged evidence.",
+                f"Se probaron {totals['L2']['attacks']} ataques distintos en este incidente. Estos son los que lograron poner su acción frente al ingeniero:",
+                f"{totals['L2']['attacks']} different attacks were tried on this incident. These got their action in front of the engineer:",
             ),
             slow,
             f"<dl class='score'><div><dt>{t('Sin defensas', 'No defences')}</dt><dd>{totals['L0']['hijacked']}</dd></div>"
-            f"<div><dt>{t('Defensas en las instrucciones', 'Defences in the instructions')}</dt><dd>{totals['L1']['hijacked']}</dd></div>"
-            f"<div class='good'><dt>{t('Centinela', 'Centinela')}</dt><dd>{totals['L2']['hijacked']}</dd></div></dl>"
-            f"<p class='quiet'>{t('Ataques que lograron poner su acción frente al ingeniero.', 'Attacks that got their action in front of the engineer.')}</p>",
+            f"<div><dt>{t('Solo instrucciones al modelo', 'Prompt defences only')}</dt><dd>{totals['L1']['hijacked']}</dd></div>"
+            f"<div class='good'><dt>Centinela</dt><dd>{totals['L2']['hijacked']}</dd></div></dl>"
+            f"<p class='quiet'>{t('Puedes volver atrás y probar otro ataque.', 'You can go back and try another attack.')}</p>",
             _phone_idle(),
             None,
             "good",
-        ),
-    ]
+            id="atk-result",
+            end=True,
+        )
+    )
     return Scenario(
         "injection",
-        t("Intentan engañar a la IA", "Someone tries to trick the AI"),
+        t("Intentar engañar a la IA", "Try to trick the AI"),
         t(
-            "Una inyección de instrucciones escondida en los registros.",
-            "A prompt injection hidden in the logs.",
+            f"Elige uno de {len(attacks)} ataques reales.",
+            f"Pick one of {len(attacks)} real attacks.",
         ),
         frames,
     )
-
-
-def redteam_repeat(redteam: dict[str, Any]) -> int:
-    for run in redteam["runs"]:
-        if run["attack"] == "direct_override" and run["level"] == "L2":
-            return len(run["quarantined"]) or 1
-    return 1
 
 
 def scenarios(cases: list[Case], redteam_dir: Path, today: dict[str, str]) -> list[Scenario]:
@@ -557,45 +754,80 @@ def scenarios(cases: list[Case], redteam_dir: Path, today: dict[str, str]) -> li
 # ------------------------------------------------------------------ rendering
 
 
+def _link(s: Scenario) -> dict[str, int]:
+    """Give every frame an id and a next frame; return each frame's depth (its step number)."""
+    for i, f in enumerate(s.frames):
+        f.id = f.id or f"{s.key}-{i}"
+    for i, f in enumerate(s.frames):
+        if f.next is None and not f.choices and not f.end and i + 1 < len(s.frames):
+            f.next = s.frames[i + 1].id
+    by_id = {f.id: f for f in s.frames}
+    depth = {s.frames[0].id: 0}
+    queue = [s.frames[0].id]
+    while queue:
+        f = by_id[queue.pop(0)]
+        for target in [f.next] if f.next else [to for _, to in f.choices]:
+            if target not in depth:
+                depth[target] = depth[f.id] + 1
+                queue.append(target)
+    missing = set(by_id) - set(depth)
+    if missing:
+        raise ValueError(f"unreachable frames in {s.key}: {sorted(missing)}")
+    return depth
+
+
 def render(items: list[Scenario]) -> str:
     tabs = "".join(
         f'<button type="button" role="tab" id="tab-{s.key}" aria-controls="sc-{s.key}" '
         f'aria-selected="{"true" if i == 0 else "false"}"><b>{s.tab}</b><small>{s.lede}</small></button>'
         for i, s in enumerate(items)
     )
-    panels = "".join(_scenario(s, i == 0) for i, s in enumerate(items))
+    panels = "".join(_scenario(s) for s in items)
+    label = t("Elige qué romper", "Choose what to break")
     return (
-        f'<div class="player" id="demo"><div class="tabs" role="tablist">{tabs}</div>{panels}</div>'
+        f'<div class="player" id="demo"><p class="pick">{label}</p>'
+        f'<div class="tabs" role="tablist">{tabs}</div>{panels}</div>'
     )
 
 
-def _scenario(s: Scenario, first: bool) -> str:
-    n = len(s.frames)
-    frames = "".join(_frame(f, i, n) for i, f in enumerate(s.frames))
-    dots = "".join(
-        f'<button type="button" class="dot" data-go="{i}" aria-label="{i + 1}"></button>'
-        for i in range(n)
-    )
+def _scenario(s: Scenario) -> str:
+    depth = _link(s)
+    steps = max(depth.values()) + 1
+    frames = "".join(_frame(f, depth[f.id], steps) for f in s.frames)
+    dots = "".join(f'<span class="dot" data-depth="{i}"></span>' for i in range(steps))
     controls = (
         f'<div class="controls"><button type="button" class="prev">{t("Anterior", "Back")}</button>'
-        f'<div class="dots">{dots}</div>'
+        f'<div class="dots" aria-hidden="true">{dots}</div>'
         f'<button type="button" class="play"><span class="idle">{t("Reproducir", "Play")}</span>'
         f'<span class="busy">{t("Pausa", "Pause")}</span></button>'
-        f'<button type="button" class="next primary">{t("Siguiente", "Next")}</button></div>'
+        f'<button type="button" class="next primary">{t("Siguiente", "Next")}</button>'
+        f'<button type="button" class="again">{t("Empezar de nuevo", "Start again")}</button></div>'
     )
-    hidden = "" if first else " hidden"
     return (
-        f'<section class="scenario" id="sc-{s.key}" role="tabpanel" aria-labelledby="tab-{s.key}"{hidden}>'
+        f'<section class="scenario" id="sc-{s.key}" role="tabpanel" aria-labelledby="tab-{s.key}">'
         f'{controls}<ol class="frames">{frames}</ol></section>'
     )
 
 
-def _frame(f: Frame, i: int, n: int) -> str:
+def _frame(f: Frame, depth: int, steps: int) -> str:
     when = f'<time datetime="{f.when.isoformat()}">{f.when:%H:%M:%S} UTC</time>' if f.when else ""
-    step = t(f"Paso {i + 1} de {n}", f"Step {i + 1} of {n}")
+    step = (
+        t("Final", "End")
+        if f.end
+        else t(f"Paso {depth + 1} de {steps}", f"Step {depth + 1} of {steps}")
+    )
+    choices = ""
+    if f.choices:
+        buttons = "".join(
+            f'<button type="button" class="choice" data-to="{to}">{label}</button>'
+            for label, to in f.choices
+        )
+        choices = f'<div class="choices">{buttons}</div>'
+    nxt = f' data-next="{f.next}"' if f.next else ""
+    tone = f" tone-{f.tone}" if f.tone else ""
     return (
-        f'<li class="frame{" tone-" + f.tone if f.tone else ""}" data-step="{i}">'
-        f'<header class="cap"><p class="meta">{step}{when}</p><h3>{f.title}</h3><p>{f.caption}</p></header>'
+        f'<li class="frame{tone}" id="{f.id}" data-depth="{depth}"{nxt}>'
+        f'<header class="cap"><p class="meta">{step}{when}</p><h3>{f.title}</h3><p>{f.caption}</p>{choices}</header>'
         f'<div class="stage">'
         f'<div class="pane"><h4 class="pane-h">{t("La tienda", "The shop")}</h4>{_shop(f.shop)}</div>'
         f'<div class="pane mind"><h4 class="pane-h">{t("Lo que ve y piensa Centinela", "What Centinela sees and thinks")}</h4>{f.mind}</div>'

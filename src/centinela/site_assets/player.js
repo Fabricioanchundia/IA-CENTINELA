@@ -1,6 +1,6 @@
-// Centinela demo: shows one frame of the incident player at a time and switches language.
-// No network access, no cookies, no third parties. Without this file the page still shows
-// every step, one under the other.
+// Centinela demo: runs the incident simulator and switches language.
+// No network access, no cookies, no third parties: it only shows and hides frames that are
+// already in the page. Without this file the page still shows every step, one under the other.
 (function () {
   "use strict";
   var root = document.documentElement;
@@ -23,38 +23,53 @@
     b.addEventListener("click", function () { setLang(b.getAttribute("data-set-lang")); });
   });
 
-  // ---- the player
+  // ---- the simulator: each scenario is a small graph of frames
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var STEP_MS = 6000;
 
   document.querySelectorAll(".player").forEach(function (player) {
     var tabs = Array.prototype.slice.call(player.querySelectorAll('[role="tab"]'));
     var scenes = Array.prototype.slice.call(player.querySelectorAll(".scenario"));
-    var timer = null;
     var active = 0;
+    var path = [];   // ids of the frames visited in the active scenario, in order
+    var timer = null;
 
     function scene() { return scenes[active]; }
-    function frames() { return scene().querySelectorAll(".frame"); }
-    function current() {
-      var f = frames();
-      for (var i = 0; i < f.length; i++) if (f[i].classList.contains("on")) return i;
-      return 0;
-    }
-    function playButton() { return scene().querySelector(".play"); }
+    function frame(id) { return document.getElementById(id); }
+    function here() { return frame(path[path.length - 1]); }
 
-    function show(i) {
-      var f = frames();
-      i = Math.max(0, Math.min(f.length - 1, i));
-      for (var k = 0; k < f.length; k++) f[k].classList.toggle("on", k === i);
-      var dots = scene().querySelectorAll(".dot");
-      for (var d = 0; d < dots.length; d++) {
-        dots[d].classList.toggle("done", d < i);
-        dots[d].setAttribute("aria-current", d === i ? "step" : "false");
+    function render(focus) {
+      var f = here();
+      scene().querySelectorAll(".frame").forEach(function (x) { x.classList.toggle("on", x === f); });
+      var depth = Number(f.getAttribute("data-depth"));
+      scene().querySelectorAll(".dot").forEach(function (d) {
+        var k = Number(d.getAttribute("data-depth"));
+        d.classList.toggle("done", k < depth);
+        d.classList.toggle("now", k === depth);
+      });
+      var waiting = f.querySelector(".choices") !== null;
+      var last = !waiting && !f.getAttribute("data-next");
+      scene().classList.toggle("waiting", waiting);
+      scene().classList.toggle("finished", last);
+      scene().querySelector(".prev").disabled = path.length === 1;
+      scene().querySelector(".next").disabled = waiting || last;
+      if (waiting || last) stop();
+      if (focus) {
+        var target = f.querySelector(".choices .choice") || f.querySelector("h3");
+        if (target === f.querySelector("h3")) target.setAttribute("tabindex", "-1");
+        target.focus({ preventScroll: true });
+        var top = scene().getBoundingClientRect().top;
+        if (top < 0) scene().scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
       }
-      scene().querySelector(".prev").disabled = i === 0;
-      scene().querySelector(".next").disabled = i === f.length - 1;
-      if (i === f.length - 1) stop();
     }
+
+    function go(id, focus) { if (frame(id)) { path.push(id); render(focus); } }
+    function next(focus) {
+      var to = here().getAttribute("data-next");
+      if (to) go(to, focus);
+    }
+    function back() { if (path.length > 1) { stop(); path.pop(); render(true); } }
+    function restart() { stop(); path = [scene().querySelector(".frame").id]; render(true); }
 
     function stop() {
       if (timer) { clearInterval(timer); timer = null; }
@@ -62,12 +77,11 @@
     }
     function play() {
       stop();
-      if (current() === frames().length - 1) show(0);
       scene().classList.add("playing");
-      timer = setInterval(function () { show(current() + 1); }, STEP_MS);
+      timer = setInterval(function () { next(false); }, STEP_MS);
     }
 
-    function select(n) {
+    function select(n, focusTab) {
       stop();
       active = n;
       tabs.forEach(function (t, k) {
@@ -75,43 +89,38 @@
         t.tabIndex = k === n ? 0 : -1;
       });
       scenes.forEach(function (s, k) { s.hidden = k !== n; });
-      show(0);
+      path = [scene().querySelector(".frame").id];
+      render(false);
+      if (focusTab) tabs[n].focus();
     }
 
     tabs.forEach(function (tab, n) {
-      tab.addEventListener("click", function () { select(n); });
+      tab.addEventListener("click", function () { select(n, false); });
       tab.addEventListener("keydown", function (e) {
         var to = e.key === "ArrowRight" ? n + 1 : e.key === "ArrowLeft" ? n - 1 : null;
         if (to === null) return;
-        to = (to + tabs.length) % tabs.length;
-        select(to);
-        tabs[to].focus();
+        select((to + tabs.length) % tabs.length, true);
       });
     });
     scenes.forEach(function (s) {
-      s.querySelector(".prev").addEventListener("click", function () { stop(); show(current() - 1); });
-      s.querySelector(".next").addEventListener("click", function () { stop(); show(current() + 1); });
-      s.querySelector(".play").addEventListener("click", function () {
-        if (timer) stop(); else play();
+      s.querySelector(".prev").addEventListener("click", back);
+      s.querySelector(".next").addEventListener("click", function () { stop(); next(true); });
+      s.querySelector(".again").addEventListener("click", restart);
+      s.querySelector(".play").addEventListener("click", function () { if (timer) stop(); else play(); });
+      s.addEventListener("click", function (e) {
+        var b = e.target.closest ? e.target.closest(".choice") : null;
+        if (b && s.contains(b)) { stop(); go(b.getAttribute("data-to"), true); }
       });
-      s.querySelectorAll(".dot").forEach(function (dot) {
-        dot.addEventListener("click", function () { stop(); show(Number(dot.getAttribute("data-go"))); });
-      });
-    });
-    player.addEventListener("keydown", function (e) {
-      if (e.target && e.target.getAttribute && e.target.getAttribute("role") === "tab") return;
-      if (e.key === "ArrowRight") { stop(); show(current() + 1); }
-      if (e.key === "ArrowLeft") { stop(); show(current() - 1); }
     });
 
-    select(0);
-    // start once when the player comes into view, unless the visitor prefers no motion
+    select(0, false);
+    // start once when the simulator comes into view, unless the visitor prefers no motion;
+    // it pauses by itself whenever the visitor has to decide
     if (!reduce && "IntersectionObserver" in window) {
       var seen = new IntersectionObserver(function (entries) {
         if (entries[0].isIntersecting) { play(); seen.disconnect(); }
-      }, { threshold: 0.5 });
+      }, { threshold: 0.4 });
       seen.observe(player);
     }
-    if (playButton()) playButton().setAttribute("aria-live", "off");
   });
 })();
