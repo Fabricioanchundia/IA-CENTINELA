@@ -27,6 +27,11 @@ repairs an outage end to end; images are signed; a static public demo replays re
   script with no network access (strict CSP); readable without JavaScript.
 - ADR-0012.
 
+### Changed
+- README rewritten: what it does, measured results, safety by design, architecture with the
+  ADR index, how to run it, roadmap and known limits, a Spanish summary, and screenshots of the
+  simulator that follow light or dark mode.
+
 
 ## [0.9.0] - 2026-11-10
 
