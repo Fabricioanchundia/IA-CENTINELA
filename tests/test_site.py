@@ -28,6 +28,17 @@ def test_page_is_built_from_the_recorded_evidence(tmp_path: Path) -> None:
     assert "With today's guards the same answer gives <code>none</code>" in page
 
 
+def test_fonts_are_self_hosted_and_no_emoji(tmp_path: Path) -> None:
+    root = copy_repo_data(tmp_path / "repo")
+    out = tmp_path / "out"
+    page = site.write(root, out).read_text()
+    for name in ("geist.woff2", "geist-mono.woff2", "OFL.txt"):
+        assert (out / name).stat().st_size > 0
+    assert "font-src 'self'" in page and "fonts.googleapis" not in page
+    assert "Incident 11 opened" in page  # the hero timeline of the real payments-down run
+    assert not any(ord(ch) >= 0x2600 for ch in page)  # no emoji or pictographs
+
+
 def test_no_script_and_untrusted_text_is_escaped(tmp_path: Path) -> None:
     root = copy_repo_data(tmp_path / "repo")
     case = root / "eval" / "cases" / "chaos-payments-down.json"

@@ -45,7 +45,7 @@ The runner has no GPU, so the agent uses `qwen3:1.7b` on CPU through Ollama on t
 
 `centinela site` builds one HTML page from files in the repository: the incidents recorded by the chaos run (what broke, **exactly what the AI saw**, what it concluded, what reached the human, and what today's guards would do with the same answer), the evaluation table and the red-team results. GitHub Pages serves it.
 
-- **No server, no JavaScript, no console, no credentials.** A `Content-Security-Policy` of `default-src 'none'` (styles only) means no script could run even if one were injected.
+- **No server, no JavaScript, no console, no credentials, no third-party requests.** A `Content-Security-Policy` of `default-src 'none'` (inline styles and same-site fonts only) means no script could run even if one were injected. The Geist fonts (SIL Open Font License) are served from the same site, so a visitor's browser contacts nobody else.
 - **Every value from a log, an event or a model answer is HTML-escaped**, tested with a `<script>` planted in a recorded case.
 - The page is rebuilt when the recorded cases or results change.
 
