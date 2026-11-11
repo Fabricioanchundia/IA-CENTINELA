@@ -99,3 +99,20 @@ def test_every_frame_of_the_simulator_is_reachable() -> None:
         assert "unreachable" in str(err)
     else:
         raise AssertionError("an unreachable frame must fail the build")
+
+
+def test_spanish_readers_get_spanish_and_the_original_stays(tmp_path: Path) -> None:
+    from centinela.site_i18n import alert_es, bilingual, fault_es
+
+    page = site.build(copy_repo_data(tmp_path / "repo"))
+    assert "Pagos está caído porque lo escalaron a 0 réplicas" in page  # translated answer
+    assert "Payments is down because it was scaled to 0 replicas" in page  # the original
+    assert "namespace de la tienda" in page and "Exactamente lo que vio la IA" in page
+    assert 'data-title-es="Centinela: IA' in page
+    assert alert_es("orders cannot reach payments") == "pedidos no puede comunicarse con pagos"
+    assert alert_es("something new happened") is None
+    assert (
+        fault_es("redis Deployment scaled to 0 replicas")
+        == "Deployment de redis escalado a 0 réplicas"
+    )
+    assert bilingual("<b>", None) == "&lt;b&gt;"

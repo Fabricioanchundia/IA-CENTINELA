@@ -19,6 +19,7 @@ from centinela.agent import snapshot
 from centinela.agent.evidence import Evidence
 from centinela.eval.cases import Case
 from centinela.redteam.attacks import ATTACKS, Attack
+from centinela.site_i18n import alert_es, bilingual, summary_es
 
 SERVICES = (
     ("catalog", "catálogo", "catalog"),
@@ -161,7 +162,7 @@ def _phone_proposal(
 
 def _alerts(ev: Evidence) -> str:
     items = "".join(
-        f"<li><time>{a.active_at:%H:%M:%S}</time><b>{_e(a.name)}</b><span>{_e(a.summary)}</span></li>"
+        f"<li><time>{a.active_at:%H:%M:%S}</time><b>{_e(a.name)}</b><span>{bilingual(a.summary, alert_es(a.summary))}</span></li>"
         for a in sorted(ev.alerts, key=lambda a: a.active_at)
     )
     return f'<ul class="alerts">{items}</ul>'
@@ -195,7 +196,14 @@ def _evidence(ev: Evidence, root: str, limit: int = 6) -> str:
 
 
 def _answer(live: dict[str, Any]) -> str:
-    note = t("Respuesta real del modelo, en inglés", "The model's real answer")
+    summary = str(live.get("summary", ""))
+    spanish = summary_es(summary)
+    note = t(
+        "Respuesta real del modelo, traducida del inglés"
+        if spanish
+        else "Respuesta real del modelo, en inglés",
+        "The model's real answer",
+    )
     model = _e(live.get("model"))
     secs = f"{float(live.get('model_seconds', 0)):.0f}"
     valid = (
@@ -204,8 +212,10 @@ def _answer(live: dict[str, Any]) -> str:
         else t("rechazada por la validación", "rejected by validation")
     )
     return (
-        f'<figure class="said"><blockquote lang="en">{_e(live.get("summary"))}</blockquote>'
-        f"<figcaption>{note}. {model}, {secs} s, {valid}.</figcaption></figure>"
+        f'<figure class="said"><blockquote>{bilingual(summary, spanish)}</blockquote>'
+        f"<figcaption>{note}. {model}, {secs} s, {valid}.</figcaption>"
+        + (f'<p class="orig es" lang="en">Original: “{_e(summary)}”</p>' if spanish else "")
+        + "</figure>"
     )
 
 
@@ -255,7 +265,7 @@ def _opening(case: Case, ev: Evidence, broken: dict[str, str], fault: str) -> li
             f"<h4>{t('Incidente', 'Incident')} #{_e(ev.incident.id)}</h4>{_alerts(ev)}",
             _phone_note(
                 t(
-                    f"Incidente abierto: {_e(ev.incident.title)}. Investigando.",
+                    f"Incidente abierto: {_e(alert_es(ev.incident.title) or ev.incident.title)}. Investigando.",
                     f"Incident opened: {_e(ev.incident.title)}. Investigating.",
                 )
             ),

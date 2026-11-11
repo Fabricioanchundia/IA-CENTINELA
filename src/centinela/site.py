@@ -24,6 +24,7 @@ from centinela.agent import snapshot
 from centinela.agent.llm import LlmReply
 from centinela.eval.cases import Case, load
 from centinela.eval.run import Config, score
+from centinela.site_i18n import bilingual, bilingual_svg, fault_es, summary_es
 from centinela.site_player import render, scenarios, t
 
 REPO = "https://github.com/Fabricioanchundia/IA-CENTINELA"
@@ -193,6 +194,7 @@ border:1.5px solid var(--steel);color:var(--steel);font:600 14px var(--sans);mar
 .cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:start}
 .term{background:var(--term);color:var(--term-ink);border-radius:10px;padding:16px 18px;font:400 12.5px/1.6 var(--mono);
 white-space:pre-wrap;word-break:break-word;max-height:460px;overflow:auto;margin:0}
+.termhead{margin:0 0 8px;font:500 13px var(--mono);color:var(--muted)}
 .term[data-title]::before{content:attr(data-title);display:block;color:var(--term-dim);margin-bottom:10px}
 .term .c{color:var(--term-dim)}
 h3.sub{font-size:1.1rem;margin:40px 0 12px;font-weight:600;letter-spacing:-.01em}
@@ -294,7 +296,9 @@ def _seconds(value: object) -> str:
 
 
 def _verdict(ok: bool) -> str:
-    return '<span class="ok">correct</span>' if ok else '<span class="bad">wrong</span>'
+    if ok:
+        return f'<span class="ok">{t("correcto", "correct")}</span>'
+    return f'<span class="bad">{t("incorrecto", "wrong")}</span>'
 
 
 def _first_proposal(case: Case) -> str:
@@ -346,8 +350,12 @@ def _run_row(case: Case) -> str:
     now = ""
     if current != proposed:
         now = (
-            f"<dt>Today</dt><dd>With today's guards the same answer gives <code>{_e(current)}</code> "
-            f"({'correct' if current in case.actions else 'still wrong'}): a rule added after this run.</dd>"
+            f"<dt>{t('Hoy', 'Today')}</dt><dd>"
+            + t(
+                f"Con las reglas de hoy la misma respuesta da <code>{_e(current)}</code> ({'correcto' if current in case.actions else 'sigue mal'}): una regla añadida después de esta prueba.",
+                f"With today's guards the same answer gives <code>{_e(current)}</code> ({'correct' if current in case.actions else 'still wrong'}): a rule added after this run.",
+            )
+            + "</dd>"
         )
     return f"""<details><summary><b>{_e(case.name.removeprefix("chaos-"))}</b>
 <span class="num">{_seconds(lv.get("mttd_seconds"))}</span>
@@ -355,18 +363,18 @@ def _run_row(case: Case) -> str:
 <span><code>{_e(lv.get("root_cause"))}</code></span>
 <span><code>{_e(proposed)}</code></span>
 <span>{_verdict(root_ok and action_ok)}</span></summary>
-<div class="detail"><pre class="term" data-title="Exactly what the AI saw">{_e(ev.render())}</pre>
-<div class="answer"><h3>What happened</h3><dl>
-<dt>Fault</dt><dd>{_e(case.fault)}</dd>
-<dt>Detected after</dt><dd>{_seconds(lv.get("mttd_seconds"))}; diagnosis {_seconds(lv.get("detected_to_diagnosis_seconds"))} later</dd>
-<dt>Root cause</dt><dd><code>{_e(lv.get("root_cause"))}</code> {_verdict(root_ok)}</dd>
-<dt>Category</dt><dd><code>{_e(lv.get("category"))}</code></dd>
-<dt>Recommends</dt><dd><code>{_e(lv.get("action"))}</code></dd>
-<dt>To the human</dt><dd><code>{_e(proposed)}</code> {_verdict(action_ok)}; right answer
+<div class="detail"><div><p class="termhead">{t("Exactamente lo que vio la IA", "Exactly what the AI saw")}</p><pre class="term">{_e(ev.render())}</pre></div>
+<div class="answer"><h3>{t("Qué pasó", "What happened")}</h3><dl>
+<dt>{t("Falla", "Fault")}</dt><dd>{bilingual(case.fault, fault_es(case.fault))}</dd>
+<dt>{t("Detectada tras", "Detected after")}</dt><dd>{_seconds(lv.get("mttd_seconds"))}; {t("diagnóstico", "diagnosis")} {_seconds(lv.get("detected_to_diagnosis_seconds"))} {t("después", "later")}</dd>
+<dt>{t("Causa", "Root cause")}</dt><dd><code>{_e(lv.get("root_cause"))}</code> {_verdict(root_ok)}</dd>
+<dt>{t("Categoría", "Category")}</dt><dd><code>{_e(lv.get("category"))}</code></dd>
+<dt>{t("Recomienda", "Recommends")}</dt><dd><code>{_e(lv.get("action"))}</code></dd>
+<dt>{t("A la persona", "To the human")}</dt><dd><code>{_e(proposed)}</code> {_verdict(action_ok)}; {t("lo correcto", "right answer")}
 <code>{_e(" or ".join(case.actions))}</code></dd>{now}
-<dt>Rule-based</dt><dd><code>{_e(lv.get("baseline"))}</code></dd>
-<dt>Model</dt><dd>{_e(lv.get("model"))}, {_seconds(lv.get("model_seconds"))}</dd></dl>
-<blockquote>{_e(lv.get("summary"))}</blockquote></div></div></details>"""
+<dt>{t("Reglas fijas", "Rule-based")}</dt><dd><code>{_e(lv.get("baseline"))}</code></dd>
+<dt>{t("Modelo", "Model")}</dt><dd>{_e(lv.get("model"))}, {_seconds(lv.get("model_seconds"))}</dd></dl>
+<blockquote>{bilingual(str(lv.get("summary", "")), summary_es(str(lv.get("summary", ""))))}</blockquote></div></div></details>"""
 
 
 def _eval_table(results: dict[str, Any]) -> str:
@@ -414,15 +422,15 @@ def _redteam_table(files: list[Path]) -> str:
     )
 
 
-RUN_IT = """<span class="c"># needs Docker, uv, k3d, kubectl, Terraform and Ollama (Linux, macOS or WSL2)</span>
+RUN_IT = """<span class="c"><span class="es"># necesitas Docker, uv, k3d, kubectl, Terraform y Ollama (Linux, macOS o WSL2)</span><span class="en"># needs Docker, uv, k3d, kubectl, Terraform and Ollama (Linux, macOS or WSL2)</span></span>
 git clone https://github.com/Fabricioanchundia/IA-CENTINELA
 cd IA-CENTINELA && uv sync --all-packages
-ollama pull qwen3:8b            <span class="c"># the model, about 5 GB</span>
-<span class="c"># fresh cluster, break payments, approve, watch the repair (about 20 minutes)</span>
+ollama pull qwen3:8b            <span class="c"><span class="es"># el modelo, unos 5 GB</span><span class="en"># the model, about 5 GB</span></span>
+<span class="c"><span class="es"># clúster nuevo, se rompe pagos, apruebas y ves la reparación (unos 20 minutos)</span><span class="en"># fresh cluster, break payments, approve, watch the repair (about 20 minutes)</span></span>
 ./scripts/e2e.sh
-<span class="c"># no GPU? use a small model on the CPU</span>
+<span class="c"><span class="es"># ¿sin GPU? usa un modelo pequeño en la CPU</span><span class="en"># no GPU? use a small model on the CPU</span></span>
 ollama pull qwen3:1.7b && E2E_MODEL=qwen3:1.7b ./scripts/e2e.sh
-<span class="c"># replay the recorded incidents on your own model</span>
+<span class="c"><span class="es"># repite los incidentes grabados con tu propio modelo</span><span class="en"># replay the recorded incidents on your own model</span></span>
 uv run centinela eval run"""
 
 
@@ -442,7 +450,7 @@ def build(root: Path) -> str:
     rows = "".join(_run_row(c) for c in cases)
     n = default["cases"]
     before = slow["L1"]["hijacked"] if slow else "-"
-    return f"""<!doctype html><html lang="en" data-lang="en"><head><meta charset="utf-8">
+    return f"""<!doctype html><html lang="en" data-lang="en" data-title-es="Centinela: IA que diagnostica caídas, con una persona al mando"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="{CSP}">
 <meta name="referrer" content="no-referrer">
@@ -494,7 +502,7 @@ def build(root: Path) -> str:
 
 <h3 class="sub">{t("Arquitectura", "Architecture")}</h3>
 <p class="intro">{t("El modelo nunca tiene credenciales ni acceso a la API del clúster; el componente que puede cambiar el clúster no piensa.", "The model never holds credentials or reaches the cluster API; the component that can change the cluster cannot think.")}</p>
-<div class="diagram">{ARCHITECTURE}</div>
+<div class="diagram">{bilingual_svg(ARCHITECTURE)}</div>
 
 <h3 class="sub">{t(f"Evaluación con {n} incidentes reproducibles", f"Evaluation on {n} replayable incidents")}</h3>
 <p class="intro">{t("Incidentes grabados y sintéticos, pasados por el mismo prompt, validación y reglas que en producción, con <code>centinela eval run</code>.", "Recorded and synthetic incidents through the production prompt, validation and guards, with <code>centinela eval run</code>.")}</p>

@@ -52,6 +52,7 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "N"]
 "**/tests/**" = ["S101", "S311"]  # assert and seeded random are fine in tests
 "src/centinela/site.py" = ["E501"]  # HTML templates: long lines are the markup
 "src/centinela/site_player.py" = ["E501"]
+"src/centinela/site_i18n.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
