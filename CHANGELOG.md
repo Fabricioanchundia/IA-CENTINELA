@@ -20,8 +20,10 @@ repairs an outage end to end; images are signed; a static public demo replays re
   (hard limit 2 h; about USD 0.30-0.50 of free-plan credit per run).
 - `images` workflow: Trivy scan on every PR; on main, images on ghcr.io with SBOM and provenance,
   signed with Sigstore cosign (keyless).
-- `centinela site` and the `pages` workflow: a static demo page (no JavaScript, strict CSP) with the
-  recorded chaos incidents, the evaluation and the red-team results.
+- `centinela site` and the `pages` workflow: a public demo page in Spanish and English that opens
+  with an incident player (four real recorded stories, step by step), then the engineering detail:
+  how to run it, architecture, evaluation, red team and every recorded incident. One same-site
+  script with no network access (strict CSP); readable without JavaScript.
 - ADR-0012.
 
 

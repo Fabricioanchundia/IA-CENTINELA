@@ -95,7 +95,7 @@ step "The incident resolves"
 resolved() { read -r _ status <<<"$(latest) "; [[ "${status:-}" == "resolved" ]]; }
 wait_for 420 "incident $id resolved" resolved
 total=$(( $(now) - started ))
-cli incidents show "$id" | head -12
+cli incidents show "$id" | sed -n 1,12p # sed reads everything: head would cut the pipe (exit 141)
 
 {
   echo "### End-to-end: payments scaled to 0, fixed through Centinela"

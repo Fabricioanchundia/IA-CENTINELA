@@ -41,18 +41,24 @@ The runner has no GPU, so the agent uses `qwen3:1.7b` on CPU through Ollama on t
 - **Pull requests:** build both images and scan them with **Trivy**; the job fails on a CRITICAL vulnerability that has a fix. HIGH and CRITICAL findings are listed in the job summary.
 - **main and version tags:** publish to **GitHub Packages** (`ghcr.io/fabricioanchundia/centinela-agent`, `…/centinela-shop`) with an **SBOM** and **build provenance** attached (BuildKit attestations), and **sign** each image with **Sigstore cosign**, keyless: the signature is bound to this repository's workflow through GitHub's OIDC token, so there is no signing key to leak. The job summary prints the `cosign verify` command.
 
-### 4. A static public demo (`pages.yml`, `centinela site`)
+### 4. A public demo that explains itself (`pages.yml`, `centinela site`)
 
-`centinela site` builds one HTML page from files in the repository: the incidents recorded by the chaos run (what broke, **exactly what the AI saw**, what it concluded, what reached the human, and what today's guards would do with the same answer), the evaluation table and the red-team results. GitHub Pages serves it.
+`centinela site` builds one page from files in the repository. A first version was a report (tables of incidents and scores); people who did not already know SRE could not tell what the system does. So the page now opens with an **incident player**, in Spanish or English:
 
-- **No server, no JavaScript, no console, no credentials, no third-party requests.** A `Content-Security-Policy` of `default-src 'none'` (inline styles and same-site fonts only) means no script could run even if one were injected. The Geist fonts (SIL Open Font License) are served from the same site, so a visitor's browser contacts nobody else.
-- **Every value from a log, an event or a model answer is HTML-escaped**, tested with a `<script>` planted in a recorded case.
+- **Four real stories, step by step:** payments goes down and is repaired after approval; the database goes down and Centinela correctly refuses to touch it; a bad release where the AI really proposed the wrong fix and the rule added afterwards; a prompt injection planted in the logs and stopped by the quarantine. Each step shows the shop, what Centinela sees and concludes, and the engineer's phone. Times, evidence and model answers come from the recordings (`eval/cases`, `docs/redteam`); nothing is mocked.
+- **For engineers, further down:** how to run it, where to check it (the e2e runs, ADRs, evaluation), the architecture, the evaluation and red-team tables, and every recorded incident with **exactly what the AI saw**.
+
+Safety:
+
+- **No server, no console, no credentials.** Nothing on the page can reach Centinela.
+- **One script, no network.** `player.js` (same site) only switches steps and language and remembers the language in the browser. The `Content-Security-Policy` is `default-src 'none'; script-src 'self'`: no inline or third-party scripts, no connections. Without JavaScript the page shows every step one under the other.
+- **Every value from a log, an event or a model answer is HTML-escaped**, tested with a `<script>` planted in a recorded case. The Geist fonts (SIL Open Font License) are served from the same site.
 - The page is rebuilt when the recorded cases or results change.
 
 ## Consequences
 
 - Every PR proves, on a cluster that did not exist a minute before, that Centinela deploys and repairs an outage end to end. A broken manifest, RBAC rule, migration or alert stops the merge.
 - Published images can be verified by anyone (signature, SBOM, provenance) before running them. Dependabot keeps base images and actions current; Trivy fails the build when a critical fix is available.
-- The public demo cannot be attacked because there is nothing to execute. It shows real recorded behaviour, not a mock-up, but it is not live.
+- The public demo cannot be used to act on anything because there is nothing behind it. It replays real recorded behaviour, not a mock-up, but it is not live; the video planned for Phase 11 shows a live run.
 - The cloud drill shows the platform deploys on AWS with Terraform, with a cost and attack surface close to zero. **Not done, on purpose:** a permanent cloud deployment. That would mean a managed cluster, HTTPS and SSO in front of the console (ADR-0008 already sets `Secure` cookies behind HTTPS), and a monthly cost decided first.
 - The e2e test adds about 20 minutes of runner time per PR (free on public repositories).

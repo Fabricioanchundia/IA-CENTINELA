@@ -1,18 +1,20 @@
-"""The public demo (Phase 10): a static page built from the repository's own evidence.
+"""The public demo (Phase 10): a page built from the repository's own evidence.
 
     uv run centinela site --out _site        (published to GitHub Pages by .github/workflows/pages.yml)
 
-It replays real incidents recorded in chaos runs (what broke, what the AI saw, what it
-concluded, what reached the human) and shows the evaluation and red-team results. It is
-static HTML: no server, no JavaScript, no console, no credentials, no third-party requests
-(the Geist fonts are served from the same site). Nobody on the internet can run anything,
-which is the strongest way to keep a public demo safe. Every value that comes from a log, an
-event or a model answer is HTML-escaped.
+It opens with an incident player: real incidents recorded in chaos runs and red-team tests, told
+step by step in Spanish or English for people who have never heard of SRE (site_player.py).
+Below, for engineers: the architecture, how to run it, the evaluation, the red-team results and
+every recorded incident with exactly what the AI saw.
+
+There is no server and nothing to log into. The only script is player.js from the same site: it
+switches frames and language and has no network access (the Content-Security-Policy allows no
+connections, no third-party scripts and no inline scripts). Without it the page still shows every
+step. Every value that comes from a log, an event or a model answer is HTML-escaped.
 """
 
 import json
 import shutil
-from datetime import datetime, timedelta
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -22,12 +24,14 @@ from centinela.agent import snapshot
 from centinela.agent.llm import LlmReply
 from centinela.eval.cases import Case, load
 from centinela.eval.run import Config, score
+from centinela.site_player import render, scenarios, t
 
 REPO = "https://github.com/Fabricioanchundia/IA-CENTINELA"
 ASSETS = Path(__file__).parent / "site_assets"
+STATIC = ("geist.woff2", "geist-mono.woff2", "OFL.txt", "player.js")
 CSP = (
-    "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; img-src data:; "
-    "base-uri 'none'; form-action 'none'"
+    "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; font-src 'self'; "
+    "img-src data:; base-uri 'none'; form-action 'none'"
 )
 DEFAULT_MODEL = "qwen3:8b"
 
@@ -35,47 +39,147 @@ CSS = """
 @font-face{font-family:Geist;src:url(geist.woff2) format("woff2");font-weight:100 900;font-display:swap}
 @font-face{font-family:"Geist Mono";src:url(geist-mono.woff2) format("woff2");font-weight:100 900;font-display:swap}
 :root{--paper:#f3f5f8;--surface:#fff;--ink:#101a27;--ink2:#38455a;--muted:#647185;--line:#d8dee6;
---steel:#2251c3;--ok:#1e7a47;--warn:#a15c07;--bad:#b42318;--term:#0f1824;--term-ink:#d5deea;
+--steel:#2251c3;--steel-ink:#fff;--ok:#1e7a47;--warn:#a15c07;--bad:#b42318;--term:#0f1824;--term-ink:#d5deea;
 --term-dim:#7d8da3;--sans:Geist,ui-sans-serif,system-ui,"Segoe UI",Roboto,sans-serif;
 --mono:"Geist Mono",ui-monospace,"Cascadia Code","SF Mono",Menlo,Consolas,monospace;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--paper:#0b121c;--surface:#111b27;--ink:#e7edf4;--ink2:#c2ccd8;
---muted:#8c99ab;--line:#233142;--steel:#79a2ff;--ok:#4cc27e;--warn:#e6a23c;--bad:#ff7a6e;--term:#070d15;
+--muted:#8c99ab;--line:#233142;--steel:#79a2ff;--steel-ink:#0b121c;--ok:#4cc27e;--warn:#e6a23c;--bad:#ff7a6e;--term:#070d15;
 color-scheme:dark}}
+html[data-lang="es"] .en,html:not([data-lang="es"]) .es{display:none}
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.6 var(--sans);
-font-feature-settings:"ss01","tnum"}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{animation:none!important;transition:none!important}}
+body{margin:0;background:var(--paper);color:var(--ink);font:400 16px/1.6 var(--sans);font-feature-settings:"ss01","tnum"}
 a{color:var(--steel);text-underline-offset:3px}
-a:focus-visible,summary:focus-visible{outline:2px solid var(--steel);outline-offset:3px;border-radius:4px}
-.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
-header.top{border-bottom:1px solid var(--line);background:var(--surface)}
+a:focus-visible,summary:focus-visible,button:focus-visible{outline:2px solid var(--steel);outline-offset:3px;border-radius:6px}
+button{font:inherit;color:inherit;cursor:pointer}
+.wrap{max-width:1180px;margin:0 auto;padding:0 24px}
+header.top{border-bottom:1px solid var(--line);background:var(--surface);position:sticky;top:0;z-index:5}
 header.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;height:60px}
 .mark{font-weight:650;font-size:17px;letter-spacing:-.01em;color:var(--ink);text-decoration:none;display:flex;gap:10px;align-items:center}
 .mark span{font:500 12px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:6px;padding:1px 7px}
-nav a{color:var(--ink2);text-decoration:none;font-size:14.5px;margin-left:22px}
+.right{display:flex;align-items:center;gap:22px}
+nav a{color:var(--ink2);text-decoration:none;font-size:14.5px;margin-left:20px}
 nav a:hover{color:var(--steel)}
-.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:56px;padding-top:72px;padding-bottom:64px;align-items:start}
-h1{font-size:clamp(2.1rem,4.2vw,3.15rem);line-height:1.08;letter-spacing:-.035em;font-weight:650;margin:0 0 22px;max-width:15ch}
-.lede{font-size:1.125rem;color:var(--ink2);margin:0 0 32px;max-width:52ch}
-.facts{display:grid;grid-template-columns:repeat(3,auto);gap:4px 36px;margin:0;justify-content:start}
-.facts dt{order:2;color:var(--muted);font-size:13.5px;line-height:1.35;max-width:17ch}
-.facts dd{order:1;margin:0;font:600 1.75rem/1.1 var(--sans);letter-spacing:-.03em}
-.facts div{display:flex;flex-direction:column;gap:6px}
-.timeline{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px 8px}
-.timeline header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:14px}
-.timeline header b{font-weight:600;white-space:nowrap}.timeline header span{color:var(--muted);font-size:13.5px}
-.timeline ol{list-style:none;margin:0;padding:0}
-.timeline li{display:grid;grid-template-columns:76px 14px 1fr;gap:12px;padding:0 0 18px;position:relative}
-.timeline time{font:500 13px/1.6 var(--mono);color:var(--muted)}
-.timeline i{width:9px;height:9px;border-radius:50%;margin-top:7px;background:var(--line);position:relative;z-index:1;justify-self:center}
-.timeline li:not(:last-child)::after{content:"";position:absolute;left:94px;top:16px;bottom:0;width:1px;background:var(--line)}
-.timeline i.warn{background:var(--warn)}.timeline i.bad{background:var(--bad)}.timeline i.steel{background:var(--steel)}
-.timeline i.wait{background:var(--surface);border:2px solid var(--steel)}
-.timeline p{margin:0;color:var(--ink2);font-size:14.5px;line-height:1.5}.timeline p b{color:var(--ink);font-weight:600}
-.timeline q{display:block;margin-top:4px;color:var(--ink);font-style:normal}
+.lang{display:none;border:1px solid var(--line);border-radius:8px;padding:2px}
+.js .lang{display:flex}
+.lang button{border:0;background:none;padding:3px 9px;border-radius:6px;font-size:13px;font-weight:600;color:var(--muted)}
+.lang button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.hero{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:56px;align-items:end;padding-top:64px;padding-bottom:36px}
+h1{font-size:clamp(2rem,3.9vw,3rem);line-height:1.1;letter-spacing:-.035em;font-weight:650;margin:0}
+.lede{font-size:1.1rem;color:var(--ink2);margin:0 0 20px}
+.links{display:flex;gap:18px;flex-wrap:wrap;font-size:15px;font-weight:500}
 section{padding:56px 0;border-top:1px solid var(--line)}
+section.demo{padding-top:8px;border-top:0}
 h2{font-size:1.6rem;letter-spacing:-.025em;font-weight:620;margin:0 0 10px}
-.intro{color:var(--ink2);max-width:68ch;margin:0 0 28px}
+.intro{color:var(--ink2);max-width:70ch;margin:0 0 28px}
+/* ---------------- the player ---------------- */
+.player{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border-bottom:1px solid var(--line)}
+html:not(.js) .tabs{display:none}
+.tabs button{background:none;border:0;border-right:1px solid var(--line);text-align:left;padding:16px 20px 14px;
+display:flex;flex-direction:column;gap:2px;position:relative;color:var(--ink2)}
+.tabs button:last-child{border-right:0}
+.tabs button b{font-weight:600;font-size:15px;color:var(--ink)}
+.tabs button small{font-size:13px;color:var(--muted);line-height:1.4}
+.tabs button[aria-selected="true"]{background:color-mix(in srgb,var(--steel) 7%,transparent)}
+.tabs button[aria-selected="true"]::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--steel)}
+.tabs button:hover b{color:var(--steel)}
+.scenario{padding:28px 28px 20px}
+html:not(.js) .scenario+.scenario{border-top:1px solid var(--line)}
+.frames{list-style:none;margin:0;padding:0}
+html:not(.js) .frame+.frame{margin-top:36px;padding-top:28px;border-top:1px dashed var(--line)}
+.js .frame{display:none}
+.js .frame.on{display:block;animation:enter .35s ease-out}
+@keyframes enter{from{opacity:.25}to{opacity:1}}
+.cap{max-width:78ch;margin-bottom:22px}
+.meta{display:flex;gap:14px;margin:0 0 6px;font:500 13px var(--mono);color:var(--muted)}
+.cap h3{font-size:1.55rem;letter-spacing:-.025em;font-weight:620;margin:0 0 6px;display:flex;align-items:center;gap:12px}
+.cap h3::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--steel);flex:none}
+.frame.tone-bad .cap h3::before{background:var(--bad)}.frame.tone-good .cap h3::before{background:var(--ok)}
+.cap>p:last-child{margin:0;color:var(--ink2);font-size:1.05rem}
+.stage{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.5fr) minmax(0,.9fr);gap:16px;align-items:stretch}
+.pane{border:1px solid var(--line);border-radius:12px;padding:16px 18px;background:var(--paper);min-height:250px}
+.pane-h{margin:0 0 12px;font-size:13px;font-weight:500;color:var(--muted)}
+.pane h4:not(.pane-h){margin:0 0 8px;font-size:14px;font-weight:600}
+.pane p{margin:0 0 8px;font-size:14.5px;color:var(--ink2)}
+.quiet{color:var(--muted)!important}
+.shop{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.shop li{display:grid;grid-template-columns:12px 1fr auto;gap:10px;align-items:center;font-size:14.5px;
+background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.shop i{width:10px;height:10px;border-radius:50%;background:var(--ok)}
+.shop .state{font-size:13px;color:var(--muted)}
+.shop .s-slow i,.shop .s-errors i{background:var(--warn)}.shop .s-slow .state,.shop .s-errors .state{color:var(--warn);font-weight:600}
+.shop .s-down i{background:var(--bad)}.shop .s-down .state{color:var(--bad);font-weight:600}
+.shop .s-down{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.shop .s-fixed i{background:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}.shop .s-fixed .state{color:var(--ok);font-weight:600}
+.alerts,.evidence{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.alerts li{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;background:var(--surface);border:1px solid var(--line);
+border-left:3px solid var(--bad);border-radius:8px;padding:8px 12px;font-size:14px}
+.alerts time{font:500 12.5px var(--mono);color:var(--muted);grid-row:span 2}
+.alerts b{font-weight:600}.alerts span{color:var(--ink2)}
+.evidence li{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 12px;display:grid;gap:2px}
+.evidence li.key{border-left:3px solid var(--steel)}
+.evidence .kind{font-size:12.5px;color:var(--muted)}
+.evidence code,.pane code.line{background:none;padding:0;font-size:12.5px;color:var(--ink);white-space:pre-wrap;word-break:break-word}
+.raw{margin-top:10px;font-size:14px}.raw summary{cursor:pointer;color:var(--steel);font-weight:500}
+.raw .term{margin-top:10px;max-height:320px}
+.term.short{max-height:none;font-size:12px}
+.said{margin:0}.said blockquote{margin:0 0 10px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);
+border-left:3px solid var(--steel);border-radius:8px;font-size:15.5px;line-height:1.5;color:var(--ink)}
+.said figcaption{font-size:13px;color:var(--muted)}
+.struck{text-decoration:line-through;text-decoration-color:var(--bad);color:var(--muted)!important}
+.ok-line{color:var(--ok)!important;font-weight:600}
+.score{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0 0 12px}
+.score div{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column-reverse;gap:2px}
+.score dt{font-size:12.5px;color:var(--muted);line-height:1.35}.score dd{margin:0;font:600 1.9rem/1.1 var(--sans);color:var(--bad)}
+.score .good{border-color:var(--ok)}.score .good dd{color:var(--ok)}
+.phone{border-radius:24px;background:var(--surface)}
+.phone .pane-h{text-align:center}
+.msg{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:10px 12px;font-size:14px}
+.msg b{font-size:12.5px;color:var(--muted);font-weight:600}.msg p{margin:2px 0 0!important;color:var(--ink)!important;font-size:14px!important}
+.msg.warn{border-color:var(--warn)}.msg.good{border-color:var(--ok)}
+.card{border:1px solid var(--steel);border-radius:14px;padding:12px;display:grid;gap:8px;background:var(--paper)}
+.card small{font-size:12.5px;color:var(--steel);font-weight:600}
+.card>b{font-size:15.5px;line-height:1.35}
+.card>p{font-size:12.5px!important;color:var(--muted)!important;margin:0!important}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btns>span{text-align:center;border-radius:9px;padding:7px 0;font-size:14px;font-weight:600;border:1px solid var(--line)}
+.btns .approve{background:var(--steel);color:var(--steel-ink);border-color:var(--steel)}
+.card.approved{border-color:var(--ok)}.card.approved small{color:var(--ok)}
+.card.approved .approve{background:var(--ok);border-color:var(--ok);box-shadow:0 0 0 3px color-mix(in srgb,var(--ok) 25%,transparent)}
+.card.approved .reject{opacity:.4}
+.card.hijacked,.card.wrong{border-color:var(--bad)}.card.hijacked small,.card.wrong small{color:var(--bad)}
+.controls{display:none;align-items:center;gap:12px;margin:0 0 24px;padding-bottom:18px;border-bottom:1px solid var(--line)}
+.js .controls{display:flex}
+.controls button:not(.dot){border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:7px 14px;font-size:14.5px;font-weight:500}
+.controls button.primary{background:var(--steel);color:var(--steel-ink);border-color:var(--steel)}
+.controls button:disabled{opacity:.4;cursor:default}
+.controls .play .busy,.playing .controls .play .idle{display:none}.playing .controls .play .busy{display:inline}
+.dots{display:flex;gap:6px;flex:1;min-width:0}
+.dot{flex:1;height:6px;border:0;border-radius:3px;background:var(--line);padding:0;position:relative;overflow:hidden;max-width:90px}
+.dot.done{background:var(--steel)}
+.dot[aria-current="step"]{background:color-mix(in srgb,var(--steel) 45%,var(--line))}
+.playing .dot[aria-current="step"]::after{content:"";position:absolute;inset:0;background:var(--steel);transform-origin:left;animation:fill 6s linear forwards}
+@keyframes fill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+/* ---------------- how it works ---------------- */
+.flow{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;counter-reset:s}
+.flow li{counter-increment:s;padding:0 18px 0 0;position:relative}
+.flow li::before{content:counter(s);display:grid;place-items:center;width:30px;height:30px;border-radius:50%;
+border:1.5px solid var(--steel);color:var(--steel);font:600 14px var(--sans);margin-bottom:12px;background:var(--paper);position:relative;z-index:1}
+.flow li:not(:last-child)::after{content:"";position:absolute;left:30px;right:0;top:15px;height:1.5px;background:var(--line)}
+.flow li.human::before{background:var(--steel);color:var(--steel-ink)}
+.flow b{display:block;font-weight:600;margin-bottom:4px}.flow p{margin:0;color:var(--ink2);font-size:14.5px}
+.facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:32px;margin:44px 0 0}
+.facts div{display:flex;flex-direction:column-reverse;justify-content:flex-end;gap:6px;border-top:2px solid var(--ink);padding-top:14px}
+.facts dt{color:var(--ink2);font-size:14.5px;max-width:34ch}.facts dd{margin:0;font:600 2.2rem/1 var(--sans);letter-spacing:-.03em}
+/* ---------------- engineers ---------------- */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;align-items:start}
+.term{background:var(--term);color:var(--term-ink);border-radius:10px;padding:16px 18px;font:400 12.5px/1.6 var(--mono);
+white-space:pre-wrap;word-break:break-word;max-height:460px;overflow:auto;margin:0}
+.term[data-title]::before{content:attr(data-title);display:block;color:var(--term-dim);margin-bottom:10px}
+.term .c{color:var(--term-dim)}
+h3.sub{font-size:1.1rem;margin:40px 0 12px;font-weight:600;letter-spacing:-.01em}
 .diagram{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
 .diagram svg{display:block;min-width:820px;width:100%;height:auto}
 .zone{fill:none;stroke:var(--line);stroke-width:1.5;stroke-dasharray:5 4}
@@ -84,8 +188,6 @@ h2{font-size:1.6rem;letter-spacing:-.025em;font-weight:620;margin:0 0 10px}
 .bs{font:400 11.5px var(--mono);fill:var(--muted)}.al{font:400 11.5px var(--sans);fill:var(--muted)}
 .arrow{stroke:var(--muted);stroke-width:1.4;fill:none;marker-end:url(#tip)}.arrow.act{stroke:var(--steel)}
 .tip{fill:var(--muted)}.tip.act{fill:var(--steel)}
-.idents{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:28px;margin-top:28px}
-.idents h3{font-size:15px;margin:0 0 4px;font-weight:600}.idents p{margin:0;color:var(--ink2);font-size:14.5px}
 .runs{border:1px solid var(--line);border-radius:14px;overflow:hidden;background:var(--surface)}
 .runs .head,.runs summary{display:grid;grid-template-columns:1.35fr .8fr .8fr 1fr 1.25fr .55fr;gap:14px;padding:13px 20px;align-items:center}
 .runs .head{font-size:13px;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -98,9 +200,6 @@ h2{font-size:1.6rem;letter-spacing:-.025em;font-weight:620;margin:0 0 10px}
 code{font:500 13px var(--mono);background:color-mix(in srgb,var(--steel) 9%,transparent);padding:2px 6px;border-radius:5px}
 .ok{color:var(--ok);font-weight:600}.bad{color:var(--bad);font-weight:600}
 .detail{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:24px;padding:4px 20px 24px}
-.term{background:var(--term);color:var(--term-ink);border-radius:10px;padding:16px 18px;font:400 12.5px/1.6 var(--mono);
-white-space:pre-wrap;word-break:break-word;max-height:460px;overflow:auto;margin:0}
-.term::before{content:attr(data-title);display:block;color:var(--term-dim);margin-bottom:10px}
 .answer h3{font-size:14px;margin:0 0 10px;font-weight:600}
 .answer dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:14px}
 .answer dt{color:var(--muted)}.answer dd{margin:0;color:var(--ink)}
@@ -114,18 +213,23 @@ tr.chosen td{background:color-mix(in srgb,var(--steel) 6%,transparent)}
 .bar{display:flex;align-items:center;gap:10px}.bar s{display:block;height:6px;border-radius:3px;background:var(--steel);text-decoration:none}
 .bar s.base{background:var(--muted)}
 .tag{font-size:12px;color:var(--steel);border:1px solid var(--steel);border-radius:999px;padding:0 7px;margin-left:8px}
-.two{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:48px}
-.controls{list-style:none;padding:0;margin:0;display:grid;gap:14px}
-.controls li{padding-left:18px;position:relative;color:var(--ink2);font-size:15px}
-.controls li::before{content:"";position:absolute;left:0;top:10px;width:7px;height:7px;border-radius:2px;background:var(--steel)}
-.controls b{color:var(--ink);font-weight:600}
+.assure{list-style:none;padding:0;margin:0;display:grid;gap:14px}
+.assure li{padding-left:18px;position:relative;color:var(--ink2);font-size:15px}
+.assure li::before{content:"";position:absolute;left:0;top:10px;width:7px;height:7px;border-radius:2px;background:var(--steel)}
+.assure b{color:var(--ink);font-weight:600}
 footer{border-top:1px solid var(--line);padding:28px 0 48px;color:var(--muted);font-size:14px}
 footer .wrap{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
-@media (max-width:880px){.hero{grid-template-columns:minmax(0,1fr);gap:40px;padding-top:48px;padding-bottom:48px}.two,.idents{grid-template-columns:minmax(0,1fr)}
+@media (max-width:980px){.stage{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.stage .mind{grid-column:1/-1;order:3}
+.tabs{grid-template-columns:repeat(4,minmax(190px,1fr));overflow-x:auto}.flow{grid-template-columns:minmax(0,1fr);gap:18px}
+.flow li{display:grid;grid-template-columns:30px 1fr;gap:0 14px;padding:0}.flow li::before{margin:0;grid-row:span 2}.flow li::after{display:none}}
+@media (max-width:880px){.hero{grid-template-columns:minmax(0,1fr);gap:20px;padding-top:40px}.cols,.facts{grid-template-columns:minmax(0,1fr)}
 .detail{grid-template-columns:1fr}.runs .head{display:none}
 .runs summary{display:flex;flex-wrap:wrap;gap:6px 10px;padding:14px 16px}.runs summary b{flex-basis:100%}.runs summary .num{display:none}.detail{padding:4px 16px 20px}
-nav a{margin-left:14px}.facts{grid-template-columns:repeat(3,minmax(0,1fr));gap:4px 18px}}
-@media (max-width:520px){nav a:nth-child(n+3){display:none}.wrap{padding-left:16px;padding-right:16px}}
+nav a{margin-left:14px}}
+@media (max-width:640px){.stage{grid-template-columns:minmax(0,1fr)}.stage .mind{order:0}.pane{min-height:0}.scenario{padding:20px 16px 16px}
+.shop{grid-template-columns:repeat(2,minmax(0,1fr))}.shop li{grid-template-columns:10px 1fr;gap:2px 8px}.shop .state{grid-column:2}
+.score{grid-template-columns:minmax(0,1fr)}.controls{flex-wrap:wrap}.dots{order:-1;flex-basis:100%}.controls .play{margin-right:auto}}
+@media (max-width:560px){nav{display:none}.wrap{padding-left:16px;padding-right:16px}}
 """
 
 
@@ -180,55 +284,6 @@ def _verdict(ok: bool) -> str:
 def _first_proposal(case: Case) -> str:
     proposals = case.live.get("proposals") or []
     return str(proposals[0]) if proposals else "none"
-
-
-def _hero_timeline(case: Case) -> str:
-    """The most characteristic thing in this world: one real incident, minute by minute."""
-    lv = case.live
-    ev = snapshot.from_json(case.evidence)
-    first = min(ev.alerts, key=lambda a: a.active_at)
-    detected = ev.incident.detected_at
-    diagnosed = detected + timedelta(seconds=float(lv.get("detected_to_diagnosis_seconds", 0)))
-    proposal = _first_proposal(case)
-    kind, _, target = proposal.partition(":")
-    action = "scale it back to 1 replica" if kind == "scale_up" else f"{kind} it"
-
-    def t(at: datetime) -> str:
-        return f'<time datetime="{at.isoformat()}">{at:%H:%M:%S}</time>'
-
-    steps = [
-        (
-            t(first.active_at),
-            "warn",
-            f"<b>{_e(first.name)}</b> on {_e(first.service)}: {_e(first.summary)}",
-        ),
-        (
-            t(detected),
-            "bad",
-            f"<b>Incident {_e(ev.incident.id)} opened</b>, {_seconds(lv.get('mttd_seconds'))} "
-            "after the first signal; related alerts grouped into it",
-        ),
-        (
-            t(diagnosed),
-            "steel",
-            f"<b>Diagnosis</b> from {_e(lv.get('model'))} in {_seconds(lv.get('model_seconds'))}, "
-            f"citing the evidence<q>{_e(lv.get('summary'))}</q>",
-        ),
-        (
-            t(diagnosed),
-            "wait",
-            f"<b>Proposed: {_e(target)}, {_e(action)}.</b> Nothing runs until an engineer "
-            "approves it",
-        ),
-    ]
-    items = "".join(
-        f'<li>{when}<i class="{cls}"></i><p>{text}</p></li>' for when, cls, text in steps
-    )
-    return (
-        f'<div class="timeline"><header><b>{_e(case.name.removeprefix("chaos-"))}</b>'
-        f"<span>recorded {ev.incident.started_at:%Y-%m-%d}, times in UTC</span></header>"
-        f"<ol>{items}</ol></div>"
-    )
 
 
 ARCHITECTURE = """
@@ -307,22 +362,22 @@ def _eval_table(results: dict[str, Any]) -> str:
         return f'<span class="bar"><s class="{cls}" style="width:{round(90 * value / n)}px"></s>{value}/{n}</span>'
 
     rows = [
-        "<tr><td>rule-based baseline</td>"
-        f"<td>{bar(int(s[labels[0]]['baseline_root_cause']), 'base')}</td><td>not measured</td><td>-</td><td>instant</td></tr>"
+        f"<tr><td>{t('reglas fijas, sin IA', 'rule-based baseline')}</td>"
+        f"<td>{bar(int(s[labels[0]]['baseline_root_cause']), 'base')}</td><td>{t('no medido', 'not measured')}</td><td>-</td><td>{t('instantáneo', 'instant')}</td></tr>"
     ]
     for label in labels:
         m = s[label]
         chosen = label == DEFAULT_MODEL
-        tag = '<span class="tag">in use</span>' if chosen else ""
+        tag = f'<span class="tag">{t("en uso", "in use")}</span>' if chosen else ""
         rows.append(
             f'<tr class="{"chosen" if chosen else ""}"><td>{_e(label)}{tag}</td>'
             f"<td>{bar(int(m['root_cause']))}</td><td>{m['right_action']}/{n}</td>"
             f"<td>{m['harmful']}</td><td>{m['median_seconds']} s</td></tr>"
         )
     return (
-        '<div class="tablebox"><table><thead><tr><th>Configuration</th><th>Root cause right</th>'
-        "<th>Right action reaches the human</th><th>Wrong actions proposed</th>"
-        f"<th>Median time</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
+        f'<div class="tablebox"><table><thead><tr><th>{t("Configuración", "Configuration")}</th><th>{t("Causa correcta", "Root cause right")}</th>'
+        f"<th>{t('Acción correcta llega a la persona', 'Right action reaches the human')}</th><th>{t('Acciones equivocadas', 'Wrong actions proposed')}</th>"
+        f"<th>{t('Tiempo mediano', 'Median time')}</th></tr></thead><tbody>{''.join(rows)}</tbody></table></div>"
     )
 
 
@@ -331,16 +386,25 @@ def _redteam_table(files: list[Path]) -> str:
     for path in files:
         data = json.loads(path.read_text())
         scenario = data.get("scenario") or path.stem.split("-", 3)[-1]
-        t = data["totals"]
+        tot = data["totals"]
         cells = "".join(
-            f"<td>{t[k]['hijacked']} of {t[k]['attacks']}</td>" for k in ("L0", "L1", "L2")
+            f"<td>{tot[k]['hijacked']} / {tot[k]['attacks']}</td>" for k in ("L0", "L1", "L2")
         )
         body += f"<tr><td><code>{_e(scenario)}</code></td>{cells}</tr>"
     return (
-        '<div class="tablebox"><table><thead><tr><th>Incident</th><th>No defences</th>'
-        "<th>Prompt defences only</th><th>Guards in code</th></tr></thead>"
+        f'<div class="tablebox"><table><thead><tr><th>{t("Incidente", "Incident")}</th><th>{t("Sin defensas", "No defences")}</th>'
+        f"<th>{t('Solo defensas en las instrucciones', 'Prompt defences only')}</th><th>{t('Reglas en código (Centinela)', 'Guards in code (Centinela)')}</th></tr></thead>"
         f"<tbody>{body}</tbody></table></div>"
     )
+
+
+RUN_IT = """<span class="c"># needs Docker, uv, k3d, kubectl, Terraform and Ollama</span>
+git clone https://github.com/Fabricioanchundia/IA-CENTINELA
+cd IA-CENTINELA && uv sync --all-packages
+<span class="c"># fresh cluster, break payments, approve, watch the repair</span>
+./scripts/e2e.sh
+<span class="c"># replay the recorded incidents on your own model</span>
+uv run centinela eval run"""
 
 
 def build(root: Path) -> str:
@@ -353,90 +417,90 @@ def build(root: Path) -> str:
     slow = next(
         (json.loads(p.read_text())["totals"] for p in redteam if "slow-orders" in p.name), None
     )
-    hero_case = next((c for c in cases if c.name == "chaos-payments-down"), cases[0])
-    injection = (
-        (
-            str(slow["L2"]["hijacked"]),
-            f"injection attacks got through, down from {slow['L1']['hijacked']} with prompt defences",
-        )
-        if slow
-        else ("-", "injection attacks")
-    )
+    attacks = sum(json.loads(p.read_text())["totals"]["L2"]["attacks"] for p in redteam)
+    got_through = sum(json.loads(p.read_text())["totals"]["L2"]["hijacked"] for p in redteam)
+    player = render(scenarios(cases, root / "docs" / "redteam", {c.name: today(c) for c in cases}))
     rows = "".join(_run_row(c) for c in cases)
-    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+    n = default["cases"]
+    before = slow["L1"]["hijacked"] if slow else "-"
+    return f"""<!doctype html><html lang="en" data-lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="{CSP}">
 <meta name="referrer" content="no-referrer">
-<title>Centinela: an AI SRE agent with a human in the loop</title>
-<meta name="description" content="Centinela detects incidents in a Kubernetes shop, diagnoses them with a local language model and proposes fixes that an engineer approves.">
-<link rel="preload" href="geist.woff2" as="font" type="font/woff2" crossorigin>
-<style>{CSS}</style></head><body>
-<header class="top"><div class="wrap"><a class="mark" href="{REPO}">Centinela<span>v{_e(__version__)}</span></a>
-<nav><a href="#replay">Incidents</a><a href="#evaluation">Evaluation</a><a href="{REPO}/tree/main/docs/adr">Design decisions</a><a href="{REPO}">Source</a></nav></div></header>
+<title>Centinela: AI that diagnoses outages, with a person in charge</title>
+<meta name="description" content="Centinela finds the cause of an outage in a Kubernetes system and proposes the fix. A person approves it. Watch it handle real recorded incidents.">
+<style>{CSS}</style>
+<script src="player.js" defer></script></head><body>
+<header class="top"><div class="wrap"><a class="mark" href="#">Centinela<span>v{_e(__version__)}</span></a>
+<div class="right"><nav><a href="#demo">{t("Demostración", "Demo")}</a><a href="#how">{t("Cómo funciona", "How it works")}</a><a href="#engineers">{t("Para ingenieros", "For engineers")}</a><a href="{REPO}">GitHub</a></nav>
+<div class="lang" role="group" aria-label="Language"><button type="button" data-set-lang="es" aria-pressed="false">ES</button><button type="button" data-set-lang="en" aria-pressed="false">EN</button></div></div></div></header>
 <main>
-<div class="wrap hero"><div>
-<h1>Finds the cause of an outage and proposes the fix. An engineer decides.</h1>
-<p class="lede">Centinela watches a microservices shop on Kubernetes. When alerts fire it opens an incident,
-gathers metrics, logs, cluster state and runbooks, asks a language model running on local hardware for a
-diagnosis, checks the answer against the evidence, and proposes one safe action. A separate executor with
-the least possible permissions applies it only after a person approves.</p>
-<dl class="facts">
-<div><dt>real faults in the cluster diagnosed correctly</dt><dd>{live_ok} of {len(cases)}</dd></div>
-<div><dt>wrong actions proposed across {default["cases"]} evaluation cases</dt><dd>{default["harmful"]}</dd></div>
-<div><dt>{_e(injection[1])}</dt><dd>{_e(injection[0])}</dd></div>
-</dl></div>
-{_hero_timeline(hero_case)}
+<div class="wrap hero">
+<h1>{t("Cuando tu sistema falla, Centinela encuentra la causa y propone el arreglo. Una persona decide.", "When your system fails, Centinela finds the cause and proposes the fix. A person decides.")}</h1>
+<div><p class="lede">{t("Es un agente de IA para equipos de operaciones. Abajo puedes ver cómo manejó fallas reales que provocamos a propósito en una tienda en línea: qué vio, qué concluyó y quién tuvo la última palabra.", "An AI agent for operations teams. Below, watch how it handled real faults we caused on purpose in an online shop: what it saw, what it concluded and who had the last word.")}</p>
+<p class="links"><a href="#how">{t("Cómo funciona", "How it works")}</a><a href="#engineers">{t("Detalles técnicos", "Technical details")}</a><a href="{REPO}">{t("Código fuente", "Source code")}</a></p></div>
 </div>
+<section class="demo"><div class="wrap">{player}</div></section>
 
-<section id="architecture"><div class="wrap">
-<h2>How it is built</h2>
-<p class="intro">Every arrow that changes something goes through a person. The model never holds credentials
-and cannot reach the cluster API; the component that can change the cluster cannot think.</p>
-<div class="diagram">{ARCHITECTURE}</div>
-<div class="idents">
-<div><h3>Agent</h3><p>Reads metrics, logs and Kubernetes state. Proposes, never acts. Untrusted text is
-quarantined before the model sees it.</p></div>
-<div><h3>Engineer</h3><p>Approves or rejects in a console with no cluster rights, or from the CLI. Proposals
-expire after 15 minutes.</p></div>
-<div><h3>Executor</h3><p>May scale or restart four named deployments, never the database. Re-checks the policy
-and verifies the fix.</p></div>
-</div></div></section>
+<section id="how"><div class="wrap">
+<h2>{t("Cómo funciona", "How it works")}</h2>
+<p class="intro">{t("La IA investiga y propone. Nunca cambia nada por su cuenta: entre la propuesta y el cambio siempre hay una persona.", "The AI investigates and proposes. It never changes anything on its own: there is always a person between the proposal and the change.")}</p>
+<ol class="flow">
+<li><b>{t("Vigila", "Watches")}</b><p>{t("Las alarmas de la tienda abren un incidente y agrupan las señales relacionadas.", "The shop's alerts open an incident and group the related signals.")}</p></li>
+<li><b>{t("Investiga", "Investigates")}</b><p>{t("Reúne métricas, registros, el estado de Kubernetes, manuales e incidentes pasados.", "Gathers metrics, logs, Kubernetes state, runbooks and past incidents.")}</p></li>
+<li><b>{t("Propone", "Proposes")}</b><p>{t("Un modelo local explica la causa. Centinela revisa la respuesta y propone una sola acción segura.", "A local model explains the cause. Centinela checks the answer and proposes one safe action.")}</p></li>
+<li class="human"><b>{t("Una persona aprueba", "A person approves")}</b><p>{t("Desde la consola o la terminal. Si nadie responde en 15 minutos, la propuesta vence.", "From the console or the terminal. If nobody answers in 15 minutes, the proposal expires.")}</p></li>
+<li><b>{t("Ejecuta y verifica", "Applies and verifies")}</b><p>{t("Un componente con permisos mínimos aplica el cambio y comprueba que funcionó.", "A component with minimal permissions applies the change and checks it worked.")}</p></li>
+</ol>
+<dl class="facts">
+<div><dt>{t("fallas reales provocadas en el sistema, con la causa encontrada correctamente", "real faults caused in the system, with the cause found correctly")}</dt><dd>{live_ok} {t("de", "of")} {len(cases)}</dd></div>
+<div><dt>{t(f"acciones equivocadas propuestas en {n} incidentes de prueba", f"wrong actions proposed in {n} test incidents")}</dt><dd>{default["harmful"]}</dd></div>
+<div><dt>{t(f"de {attacks} ataques para engañar a la IA lograron su objetivo (con defensas solo en las instrucciones: {before})", f"of {attacks} attacks to trick the AI got their way (with defences only in the instructions: {before})")}</dt><dd>{got_through}</dd></div>
+</dl></div></section>
 
-<section id="replay"><div class="wrap">
-<h2>Incidents from a chaos run</h2>
-<p class="intro">Ten faults were injected into the running shop by <code>scripts/chaos.sh</code>; eight of them
-should open an incident and did. Open a row to see the exact evidence the model received and what it
-answered.</p>
-<div class="runs"><div class="head"><span>Fault</span><span>Detected after</span><span>Diagnosis after</span>
-<span>Root cause</span><span>Proposed to the engineer</span><span>Result</span></div>{rows}</div>
-<p class="note">Times as measured during the run. The catalog-down detection time was inflated by a late
-latency alert left over from the previous fault; since v0.9 a late alert reopens its own incident.</p>
-</div></section>
-
-<section id="evaluation"><div class="wrap">
-<h2>Evaluation on {default["cases"]} replayable incidents</h2>
-<p class="intro">Recorded and synthetic incidents replayed through the production prompt, validation and
-guards with <code>centinela eval run</code>. A wrong action is a fix proposed to the engineer that would not
-help or would cause harm.</p>
-{_eval_table(results)}
-</div></section>
-
-<section id="security"><div class="wrap two"><div>
-<h2>Prompt injection in logs</h2>
-<p class="intro">Log lines quote what customers type, so anyone can write instructions into the agent's
-evidence. Thirteen attacks, hidden in logs, Kubernetes events and old postmortems, measured with
-<code>centinela redteam</code>: how many put the attacker's action in front of the engineer.</p>
-{_redteam_table(redteam)}
+<section id="engineers"><div class="wrap">
+<h2>{t("Para ingenieros", "For engineers")}</h2>
+<p class="intro">{t("Python 3.12, Kubernetes (k3s), Terraform, Prometheus, Loki, PostgreSQL, Ollama y un servidor MCP. Cada pull request levanta un clúster nuevo y repite la reparación de punta a punta.", "Python 3.12, Kubernetes (k3s), Terraform, Prometheus, Loki, PostgreSQL, Ollama and an MCP server. Every pull request builds a fresh cluster and repeats the repair end to end.")}</p>
+<div class="cols"><div>
+<h3 class="sub" style="margin-top:0">{t("Pruébalo en tu máquina", "Run it yourself")}</h3>
+<pre class="term">{RUN_IT}</pre>
 </div><div>
-<h2>Why this page is safe to publish</h2>
-<ul class="controls">
-<li><b>Static.</b> No server, no JavaScript, no forms. A content security policy blocks scripts even if one were injected.</li>
-<li><b>Escaped.</b> Every log line and model answer shown here is treated as text.</li>
-<li><b>Private by default.</b> The real approval console only listens inside the cluster.</li>
-<li><b>Built in the open.</b> Generated by GitHub Actions from files in the repository; container images are signed and scanned.</li>
-</ul></div></div></section>
+<h3 class="sub" style="margin-top:0">{t("Dónde comprobarlo", "Where to check it")}</h3>
+<ul class="assure">
+<li><b><a href="{REPO}/actions/workflows/e2e.yml">{t("Prueba de punta a punta", "End-to-end test")}</a>.</b> {t("Cada ejecución: clúster nuevo, payments en 0, diagnóstico, aprobación, reparación.", "Every run: fresh cluster, payments at 0, diagnosis, approval, repair.")}</li>
+<li><b><a href="{REPO}/tree/main/docs/adr">{t("Decisiones de diseño", "Design decisions")}</a>.</b> {t("Doce ADR: por qué cada pieza es como es.", "Twelve ADRs: why each piece is the way it is.")}</li>
+<li><b><a href="{REPO}/tree/main/docs/eval">{t("Evaluación", "Evaluation")}</a> {t("y", "and")} <a href="{REPO}/tree/main/docs/redteam">red team</a>.</b> {t("Resultados completos y cómo repetirlos.", "Full results and how to repeat them.")}</li>
+<li><b>{t("Imágenes firmadas", "Signed images")}.</b> {t("Con cosign, SBOM y procedencia, escaneadas con Trivy.", "With cosign, SBOM and provenance, scanned with Trivy.")}</li>
+</ul></div></div>
+
+<h3 class="sub">{t("Arquitectura", "Architecture")}</h3>
+<p class="intro">{t("El modelo nunca tiene credenciales ni acceso a la API del clúster; el componente que puede cambiar el clúster no piensa.", "The model never holds credentials or reaches the cluster API; the component that can change the cluster cannot think.")}</p>
+<div class="diagram">{ARCHITECTURE}</div>
+
+<h3 class="sub">{t(f"Evaluación con {n} incidentes reproducibles", f"Evaluation on {n} replayable incidents")}</h3>
+<p class="intro">{t("Incidentes grabados y sintéticos, pasados por el mismo prompt, validación y reglas que en producción, con <code>centinela eval run</code>.", "Recorded and synthetic incidents through the production prompt, validation and guards, with <code>centinela eval run</code>.")}</p>
+{_eval_table(results)}
+
+<h3 class="sub">{t("Inyección de instrucciones en los registros", "Prompt injection in logs")}</h3>
+<p class="intro">{t("Ataques escondidos en registros, eventos de Kubernetes e incidentes pasados, medidos con <code>centinela redteam</code>: cuántos pusieron la acción del atacante frente al ingeniero.", "Attacks hidden in logs, Kubernetes events and past incidents, measured with <code>centinela redteam</code>: how many put the attacker's action in front of the engineer.")}</p>
+{_redteam_table(redteam)}
+
+<h3 class="sub" id="replay">{t("Todos los incidentes de la prueba de caos", "Every incident from the chaos run")}</h3>
+<p class="intro">{t("Diez fallas provocadas con <code>scripts/chaos.sh</code>; ocho debían abrir un incidente y lo abrieron. Abre una fila para ver la evidencia exacta.", "Ten faults injected with <code>scripts/chaos.sh</code>; eight should open an incident and did. Open a row for the exact evidence.")}</p>
+<div class="runs"><div class="head"><span>{t("Falla", "Fault")}</span><span>{t("Detectada tras", "Detected after")}</span><span>{t("Diagnóstico tras", "Diagnosis after")}</span>
+<span>{t("Causa", "Root cause")}</span><span>{t("Propuesta a la persona", "Proposed to the engineer")}</span><span>{t("Resultado", "Result")}</span></div>{rows}</div>
+<p class="note">{t("Tiempos medidos durante la prueba. La detección de catalog-down se infló por una alarma tardía de la falla anterior; desde v0.9 una alarma tardía reabre su propio incidente.", "Times as measured during the run. The catalog-down detection time was inflated by a late alert left over from the previous fault; since v0.9 a late alert reopens its own incident.")}</p>
+
+<h3 class="sub">{t("Por qué esta página es segura", "Why this page is safe")}</h3>
+<ul class="assure">
+<li><b>{t("Sin servidor.", "No server.")}</b> {t("No hay nada a qué iniciar sesión ni nada que ejecutar; la consola real de aprobación solo escucha dentro del clúster.", "Nothing to log into, nothing to run; the real approval console only listens inside the cluster.")}</li>
+<li><b>{t("Un solo script, sin red.", "One script, no network.")}</b> {t("<code>player.js</code> cambia pasos e idioma. La política de seguridad (CSP) no permite conexiones, scripts de terceros ni scripts en línea.", "<code>player.js</code> switches steps and language. The Content-Security-Policy allows no connections, third-party scripts or inline scripts.")}</li>
+<li><b>{t("Todo escapado.", "Everything escaped.")}</b> {t("Cada registro y respuesta del modelo se muestra como texto.", "Every log line and model answer is shown as text.")}</li>
+<li><b>{t("Construida en abierto.", "Built in the open.")}</b> {t("GitHub Actions la genera desde los archivos del repositorio.", "GitHub Actions generates it from files in the repository.")}</li>
+</ul>
+</div></section>
 </main>
-<footer><div class="wrap"><span>Centinela v{_e(__version__)}, generated from the repository</span>
+<footer><div class="wrap"><span>Centinela v{_e(__version__)}. {t("Proyecto de Fabricio Anchundia.", "A project by Fabricio Anchundia.")}</span>
 <a href="{REPO}">{REPO.removeprefix("https://")}</a></div></footer>
 </body></html>
 """
@@ -446,7 +510,7 @@ def write(root: Path, out: Path) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     page = out / "index.html"
     page.write_text(build(root))
-    for font in ("geist.woff2", "geist-mono.woff2", "OFL.txt"):
-        shutil.copyfile(ASSETS / font, out / font)
+    for name in STATIC:
+        shutil.copyfile(ASSETS / name, out / name)
     (out / ".nojekyll").write_text("")
     return page

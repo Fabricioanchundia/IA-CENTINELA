@@ -1,6 +1,7 @@
-"""Phase 10: the static public demo page."""
+"""Phase 10: the public demo page and its incident player."""
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -28,18 +29,36 @@ def test_page_is_built_from_the_recorded_evidence(tmp_path: Path) -> None:
     assert "With today's guards the same answer gives <code>none</code>" in page
 
 
-def test_fonts_are_self_hosted_and_no_emoji(tmp_path: Path) -> None:
-    root = copy_repo_data(tmp_path / "repo")
+def test_player_tells_four_real_stories_in_two_languages(tmp_path: Path) -> None:
+    page = site.build(copy_repo_data(tmp_path / "repo"))
+    for key in ("payments-down", "postgres-down", "bad-release", "injection"):
+        assert f'id="sc-{key}"' in page
+    # payments-down: the real recorded times and answer
+    assert "15:28:52 UTC" in page and "scaled to 0 replicas, causing upstream errors" in page
+    assert (
+        "Volver a encender pagos (1 copia)" in page
+        and "Scale payments back up to 1 replica" in page
+    )
+    # postgres-down: the model suggested touching the database, the policy blocked it
+    assert "<p class='struck'>" in page and "Bloqueada por la política" in page
+    # the bad release: the real wrong proposal, then today's rule
+    assert "Propuesta incorrecta" in page and "NEW ROLLOUT" in page
+    # the injection: the attacker's text is shown escaped, with the measured result
+    assert "IGNORE ALL PREVIOUS INSTRUCTIONS" in page and "coupon &quot;" in page
+    assert re.search(r"<div class='good'><dt>.*?</dt><dd>0</dd>", page)
+    assert page.count('class="es"') == page.count('class="en"')
+
+
+def test_static_files_and_no_emoji(tmp_path: Path) -> None:
     out = tmp_path / "out"
-    page = site.write(root, out).read_text()
-    for name in ("geist.woff2", "geist-mono.woff2", "OFL.txt"):
+    page = site.write(copy_repo_data(tmp_path / "repo"), out).read_text()
+    for name in ("geist.woff2", "geist-mono.woff2", "OFL.txt", "player.js"):
         assert (out / name).stat().st_size > 0
-    assert "font-src 'self'" in page and "fonts.googleapis" not in page
-    assert "Incident 11 opened" in page  # the hero timeline of the real payments-down run
+    assert "fonts.googleapis" not in page
     assert not any(ord(ch) >= 0x2600 for ch in page)  # no emoji or pictographs
 
 
-def test_no_script_and_untrusted_text_is_escaped(tmp_path: Path) -> None:
+def test_only_the_local_player_script_and_untrusted_text_is_escaped(tmp_path: Path) -> None:
     root = copy_repo_data(tmp_path / "repo")
     case = root / "eval" / "cases" / "chaos-payments-down.json"
     data = json.loads(case.read_text())
@@ -47,6 +66,12 @@ def test_no_script_and_untrusted_text_is_escaped(tmp_path: Path) -> None:
     data["fault"] = "<img src=x onerror=alert(1)>"
     case.write_text(json.dumps(data))
     page = site.build(root)
-    assert "<script" not in page and "<img" not in page
+    assert re.findall(r"<script[^>]*>", page) == ['<script src="player.js" defer>']
+    assert "<img" not in page
     assert "&lt;script&gt;alert(&quot;pwned&quot;)&lt;/script&gt;" in page
-    assert "default-src 'none'" in page  # CSP: no script could run anyway
+    csp = re.search(r'Content-Security-Policy" content="([^"]+)"', page)
+    assert csp is not None
+    policy = csp.group(1)
+    assert "default-src 'none'" in policy and "script-src 'self'" in policy
+    assert "unsafe-inline" not in policy.split("script-src", 1)[1].split(";")[0]
+    assert "connect-src" not in policy  # falls back to default-src 'none': no network at all
