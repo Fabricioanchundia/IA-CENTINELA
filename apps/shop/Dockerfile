@@ -4,7 +4,7 @@
 FROM ghcr.io/astral-sh/uv:0.13 AS uv
 
 # ---- build stage: resolve dependencies with uv -----------------------------------------
-FROM python:3.12-slim AS build
+FROM python:3.15-slim AS build
 COPY --from=uv /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -21,7 +21,7 @@ COPY apps/shop/src apps/shop/src
 RUN uv sync --frozen --no-dev --package shop --no-editable
 
 # ---- runtime stage: no uv, no build tools, non-root user -------------------------------
-FROM python:3.12-slim
+FROM python:3.15-slim
 RUN useradd --create-home --uid 10001 app
 WORKDIR /app
 COPY --from=build --chown=app:app /app/.venv /app/.venv
