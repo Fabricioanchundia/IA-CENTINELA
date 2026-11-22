@@ -7,12 +7,12 @@ license = "MIT"
 authors = [{ name = "Fabricio Anchundia" }]
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.162.5",
+    "fastapi>=0.165.0",
     "httpx>=0.28",
     "mcp>=2.3.0",
     "prometheus-client>=0.26",
-    "psycopg[binary,pool]>=3.3.8",
-    "python-multipart>=0.0.20",
+    "psycopg[binary,pool]>=3.3.9",
+    "python-multipart>=0.0.34",
     "uvicorn>=0.38",
 ]
 
@@ -21,12 +21,12 @@ centinela = "centinela.cli:main"
 
 [dependency-groups]
 dev = [
-    "httpx2>=0.1",
+    "httpx2>=2.16.2",
     "mypy>=1.18",
     "pre-commit>=4.3",
     "pytest>=8.4",
     "pytest-cov>=7.0",
-    "ruff>=0.14",
+    "ruff>=0.17.5",
 ]
 
 [tool.uv.workspace]
