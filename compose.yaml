@@ -115,7 +115,7 @@ services:
     cpus: 0.5
 
   loki:
-    image: grafana/loki:3.7.9
+    image: grafana/loki:3.7.10
     profiles: ["obs"]
     restart: unless-stopped
     command: ["-config.file=/etc/loki/loki.yaml"]
@@ -128,7 +128,7 @@ services:
     cpus: 0.5
 
   alloy:
-    image: grafana/alloy:v1.21.3
+    image: grafana/alloy:v1.22.0
     profiles: ["obs"]
     restart: unless-stopped
     command:
