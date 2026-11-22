@@ -5,7 +5,7 @@ description = "Demo online shop (catalog, orders, payments) that Centinela watch
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi>=0.162.5",
+    "fastapi>=0.165.0",
     "httpx>=0.28",
     "prometheus-client>=0.26",
     "psycopg[binary,pool]>=3.3.8",
